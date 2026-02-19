@@ -5,7 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { submissionSchema, type SubmissionFormValues } from "@/lib/validators/submission";
 import { trpc } from "@/lib/trpcClient";
 import { useRouter, usePathname } from "next/navigation";
-import { Upload, X, FileText, File, Image, FileCheck } from "lucide-react";
+import { Upload, X, FileText, File as FileIcon, Image, FileCheck } from "lucide-react";
 
 const SECTION_OPTIONS = [
   "FIRE",
@@ -62,10 +62,10 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
   const [step, setStep] = useState(1);
   const [customSections, setCustomSections] = useState<string[]>([]);
   const [customSubSections, setCustomSubSections] = useState<Record<string, string[]>>({});
-  const [newSectionInput, setNewSectionInput] = useState<Record<number, string>>({});
-  const [newSubSectionInput, setNewSubSectionInput] = useState<Record<number, string>>({});
-  const [showNewSectionInput, setShowNewSectionInput] = useState<Record<number, boolean>>({});
-  const [showNewSubSectionInput, setShowNewSubSectionInput] = useState<Record<number, boolean>>({});
+  const [newSectionInput, setNewSectionInput] = useState<Record<string, string>>({});
+  const [newSubSectionInput, setNewSubSectionInput] = useState<Record<string, string>>({});
+  const [showNewSectionInput, setShowNewSectionInput] = useState<Record<string, boolean>>({});
+  const [showNewSubSectionInput, setShowNewSubSectionInput] = useState<Record<string, boolean>>({});
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   
   // Generate policy number on mount
@@ -213,7 +213,7 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
   function getFileIcon(type: string) {
     if (type.startsWith("image/")) return Image;
     if (type.includes("pdf")) return FileText;
-    return File;
+    return FileIcon;
   }
 
   // Format currency as R with spaces for thousands and comma for decimals
@@ -1512,9 +1512,9 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
           <button
             type="submit"
             className="btn-primary px-6"
-            disabled={createSubmission.isLoading || updateSubmission.isLoading}
+            disabled={createSubmission.isPending || updateSubmission.isPending}
           >
-            {createSubmission.isLoading || updateSubmission.isLoading
+            {createSubmission.isPending || updateSubmission.isPending
               ? submissionId
                 ? "Updating..."
                 : "Submitting..."
