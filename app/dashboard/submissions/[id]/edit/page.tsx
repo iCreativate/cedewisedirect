@@ -31,7 +31,7 @@ export default function EditSubmissionPage() {
         <div className="flex flex-col items-center justify-center py-12">
           <AlertCircle className="mb-4 h-12 w-12 text-destructive" />
           <div className="text-sm font-semibold text-foreground">Submission not found</div>
-          <div className="mt-2 text-xs text-muted-foreground">The submission you're looking for doesn't exist or you don't have access to it.</div>
+          <div className="mt-2 text-xs text-muted-foreground">The submission you&apos;re looking for doesn&apos;t exist or you don&apos;t have access to it.</div>
           <button
             onClick={() => router.back()}
             className="btn-secondary mt-4"

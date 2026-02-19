@@ -523,7 +523,7 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
                           {tableRows.length === 0 ? (
                             <tr>
                               <td colSpan={8} className="p-4 text-center text-sm text-muted-foreground">
-                                No rows added. Click "Add Row" to start.
+                                No rows added. Click &quot;Add Row&quot; to start.
                               </td>
                             </tr>
                           ) : (
@@ -984,7 +984,7 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
 
               <div className="space-y-4">
                 <div>
-                  <label className="mb-1 block text-sm font-medium">Reinsurer's Conditions for support</label>
+                  <label className="mb-1 block text-sm font-medium">Reinsurer&apos;s Conditions for support</label>
                   <textarea
                     className="h-32 w-full rounded border px-3 py-2 text-sm"
                     {...form.register("extra.reinsurersConditions")}
@@ -1015,7 +1015,7 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
                 <div className="mt-4 rounded border border-blue-200 bg-blue-50 p-3 text-xs">
                   Approach XOL Reinsurers for{" "}
                   <span className="font-semibold">R{calculations.shortfallXOL.toLocaleString()}</span> in Excess of{" "}
-                  <span className="font-semibold">R{(form.watch("extra.hicShareAmount") || 0).toLocaleString()}</span> in respect of HIC's 100% share of the Risk
+                  <span className="font-semibold">R{(form.watch("extra.hicShareAmount") || 0).toLocaleString()}</span> in respect of HIC&apos;s 100% share of the Risk
                 </div>
               </div>
             </div>
@@ -1449,7 +1449,7 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
                     {/* Reinsurer Conditions */}
                     {form.watch("extra.reinsurersConditions") && (
                       <div>
-                        <span className="text-xs font-medium text-muted-foreground">Reinsurer's Conditions for Support:</span>
+                        <span className="text-xs font-medium text-muted-foreground">Reinsurer&apos;s Conditions for Support:</span>
                         <p className="mt-1 text-sm whitespace-pre-wrap">{form.watch("extra.reinsurersConditions")}</p>
                       </div>
                     )}
