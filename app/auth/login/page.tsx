@@ -26,10 +26,6 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
-  const showDemoLogins =
-    process.env.NODE_ENV !== "production" ||
-    process.env.NEXT_PUBLIC_DEMO_MODE === "true";
-
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -145,49 +141,52 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {showDemoLogins && (
-            <div className="mt-6 rounded-xl border border-border/50 bg-background/60 p-4">
-              <div className="mb-3 flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Demo logins</p>
-                  <p className="text-xs text-muted-foreground">
-                    Password: <span className="font-mono">{DEMO_PASSWORD}</span>
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  className="btn-secondary h-9 px-3 text-sm"
-                  disabled={loading}
-                  onClick={() => {
-                    setError(null);
-                    setEmail("");
-                    setPassword("");
-                  }}
-                >
-                  Clear
-                </button>
+          <div className="mt-6 rounded-xl border border-border/50 bg-background/60 p-4">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Dummy login (demo access)</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Password for all: <span className="font-mono">{DEMO_PASSWORD}</span>
+                </p>
               </div>
-
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {DEMO_LOGINS.map((d) => (
-                  <button
-                    key={d.email}
-                    type="button"
-                    className="btn-secondary h-10 justify-center text-sm"
-                    disabled={loading}
-                    onClick={() => signInDemo(d.email)}
-                    title={`Sign in as ${d.email}`}
-                  >
-                    {d.label}
-                  </button>
-                ))}
-              </div>
-
-              <p className="mt-3 text-xs text-muted-foreground">
-                Note: these only work if the server has <span className="font-mono">DEMO_MODE=true</span>.
-              </p>
+              <button
+                type="button"
+                className="btn-secondary h-9 px-3 text-sm"
+                disabled={loading}
+                onClick={() => {
+                  setError(null);
+                  setEmail("");
+                  setPassword("");
+                }}
+              >
+                Clear
+              </button>
             </div>
-          )}
+
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {DEMO_LOGINS.map((d) => (
+                <button
+                  key={d.email}
+                  type="button"
+                  className="btn-secondary h-10 justify-center text-sm"
+                  disabled={loading}
+                  onClick={() => signInDemo(d.email)}
+                  title={`Sign in as ${d.email}`}
+                >
+                  {d.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+              <p className="font-medium text-foreground">Credentials:</p>
+              <ul className="list-inside list-disc space-y-0.5 font-mono">
+                {DEMO_LOGINS.map((d) => (
+                  <li key={d.email}>{d.email}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
 
           <p className="mt-6 text-center text-xs text-muted-foreground">
             By continuing you agree to our{" "}

@@ -16,7 +16,9 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         if (!credentials?.email || !credentials.password) return null;
         const email = credentials.email.toLowerCase().trim();
-        if (process.env.DEMO_MODE === "true") {
+        const demoModeEnabled =
+          process.env.DEMO_MODE === "true" || process.env.NODE_ENV === "development";
+        if (demoModeEnabled) {
           const demoUsers = new Set([
             "broker.demo@cedewise.test",
             "manager.demo@cedewise.test",

@@ -42,19 +42,30 @@ npx prisma generate
 npx prisma db push
 ```
 
-### 4. Seed Demo Users
+### 4. Dummy login (instant access)
+
+You can sign in **without a database** in development (or in production if `DEMO_MODE=true`). On the login page use:
+
+| Role | Email | Password |
+|------|--------|----------|
+| Broker | `broker.demo@cedewise.test` | `Password123!` |
+| Underwriting Manager | `manager.demo@cedewise.test` | `Password123!` |
+| Co-insurer | `coinsurer.demo@cedewise.test` | `Password123!` |
+| Insurer | `insurer.demo@cedewise.test` | `Password123!` |
+
+For production (e.g. Netlify), set env vars `DEMO_MODE=true` and `NEXT_PUBLIC_DEMO_MODE=true` to allow these logins without running the seed.
+
+### 5. (Optional) Seed database demo users
+
+If you use the database and want the same users stored in DB:
 
 ```bash
 npm run seed:demo
 ```
 
-This creates demo users for all roles:
-- **BROKER**: `broker.demo@cedewise.test` / `Password123!`
-- **UNDERWRITING_MANAGER**: `manager.demo@cedewise.test` / `Password123!`
-- **CO_INSURER**: `coinsurer.demo@cedewise.test` / `Password123!`
-- **INSURER**: `insurer.demo@cedewise.test` / `Password123!`
+This creates the same four users above in PostgreSQL.
 
-### 5. Start Development Server
+### 6. Start Development Server
 
 ```bash
 npm run dev -- -p 3005
