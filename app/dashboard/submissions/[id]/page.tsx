@@ -59,7 +59,7 @@ export default function ViewSubmissionPage() {
   
   if (isLoading) {
     return (
-      <DashboardShell>
+      <DashboardShell title="Submission">
         <div className="flex items-center justify-center py-12">
           <div className="text-sm text-muted-foreground">Loading submission...</div>
         </div>
@@ -69,7 +69,7 @@ export default function ViewSubmissionPage() {
   
   if (error || !submission) {
     return (
-      <DashboardShell>
+      <DashboardShell title="Submission not found">
         <div className="flex flex-col items-center justify-center py-12">
           <AlertCircle className="mb-4 h-12 w-12 text-destructive" />
           <div className="text-sm font-semibold text-foreground">Submission not found</div>
@@ -86,7 +86,7 @@ export default function ViewSubmissionPage() {
   }
   
   return (
-    <DashboardShell>
+    <DashboardShell title="Submission">
       <div className="mx-auto w-full max-w-6xl space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">

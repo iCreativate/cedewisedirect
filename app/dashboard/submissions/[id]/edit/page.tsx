@@ -17,7 +17,7 @@ export default function EditSubmissionPage() {
   
   if (isLoading) {
     return (
-      <DashboardShell>
+      <DashboardShell title="Edit Submission">
         <div className="flex items-center justify-center py-12">
           <div className="text-sm text-muted-foreground">Loading submission...</div>
         </div>
@@ -27,7 +27,7 @@ export default function EditSubmissionPage() {
   
   if (error || !submission) {
     return (
-      <DashboardShell>
+      <DashboardShell title="Submission not found">
         <div className="flex flex-col items-center justify-center py-12">
           <AlertCircle className="mb-4 h-12 w-12 text-destructive" />
           <div className="text-sm font-semibold text-foreground">Submission not found</div>
@@ -44,7 +44,7 @@ export default function EditSubmissionPage() {
   }
   
   return (
-    <DashboardShell>
+    <DashboardShell title="Edit Submission">
       <div className="mx-auto w-full max-w-6xl">
         <SubmissionForm submissionId={submissionId} initialData={submission} />
       </div>
