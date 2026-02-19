@@ -12,7 +12,6 @@ import {
   Moon,
   Sun,
   Palette,
-  Notifications,
   User,
   FileText,
   Download,
