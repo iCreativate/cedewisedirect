@@ -5,7 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { submissionSchema, type SubmissionFormValues } from "@/lib/validators/submission";
 import { trpc } from "@/lib/trpcClient";
 import { useRouter, usePathname } from "next/navigation";
-import { Upload, X, FileText, File as FileIcon, Image, FileCheck } from "lucide-react";
+import { Upload, X, FileText, File as FileIcon, Image, FileCheck, ChevronDown } from "lucide-react";
 
 const SECTION_OPTIONS = [
   "FIRE",
@@ -76,11 +76,40 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
     totalSumInsured: number;
   } | null>(null);
   const [facPromptShownForRow, setFacPromptShownForRow] = useState<Record<string, boolean>>({});
+  const [forwardMenuOpen, setForwardMenuOpen] = useState(false);
+  const [forwardModalOpen, setForwardModalOpen] = useState(false);
+  const [forwardType, setForwardType] = useState<"PROP" | "NON_PROP" | null>(null);
+  const [reinsurerName, setReinsurerName] = useState("");
+  const [reinsurerEmail, setReinsurerEmail] = useState("");
+  const [reinsurerNotes, setReinsurerNotes] = useState("");
+  const [submitReinsurersOpen, setSubmitReinsurersOpen] = useState(false);
+  const [submitReinsurersTo, setSubmitReinsurersTo] = useState("");
+  const [submitReinsurersCc, setSubmitReinsurersCc] = useState("");
+  const [submitReinsurersSubject, setSubmitReinsurersSubject] = useState("Submission for Reinsurance Consideration");
+  const forwardMenuRef = useRef<HTMLDivElement>(null);
   const [duplicateAddressPrompt, setDuplicateAddressPrompt] = useState<{
     tableIdx: number;
     location: string;
     matchingTableIdxs: number[];
   } | null>(null);
+
+  useEffect(() => {
+    function onDocMouseDown(e: MouseEvent) {
+      if (!forwardMenuOpen) return;
+      const target = e.target as Node | null;
+      if (forwardMenuRef.current && target && !forwardMenuRef.current.contains(target)) {
+        setForwardMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [forwardMenuOpen]);
+
+  function buildSubmitToReinsurersText() {
+    // Default to Prop format unless user already picked a type in Forward flow
+    const type = forwardType ?? "PROP";
+    return buildForwardToReinsurerText(type);
+  }
 
   function formatThousandsSpaces(value: number): string {
     const rounded = Math.round(value);
@@ -117,6 +146,61 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
     const normalized = fracPart ? `${intPart}.${fracPart}` : intPart;
     const parsed = Number(normalized);
     return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  function buildForwardToReinsurerText(type: "PROP" | "NON_PROP") {
+    const insuredName = String(form.getValues("extra.insuredName") || "-");
+    const policyNo = String(form.getValues("extra.policyNo") || "-");
+    const marketer = String(form.getValues("extra.marketer") || "-");
+    const riskAddress = String(form.getValues("extra.riskAddress") || "-");
+    const occupancy = String(form.getValues("extra.occupancyOfRisk") || "-");
+    const construction = String(form.getValues("extra.construction") || "-");
+
+    const facLines: string[] = [];
+    for (const item of summaryData as any[]) {
+      if (item?.accumulatedBreakdown) {
+        for (const b of item.accumulatedBreakdown as any[]) {
+          if (Number(b.totalSumInsured || 0) > 200000000) {
+            facLines.push(
+              `- ${b.riskAddress} | ${b.sectionLabel || "-"} | Sum Insured: ${formatCurrency(
+                b.totalSumInsured
+              )} | Premium: ${formatCurrency(b.totalPremium)}`
+            );
+          }
+        }
+        continue;
+      }
+      if (item?.externalFacRequired === "Request Fac Cover") {
+        facLines.push(
+          `- ${item.riskAddress || "-"} | ${(item.sectionLabel || "").trim() || "-"} | Sum Insured: ${formatCurrency(
+            item.totalSumInsured
+          )} | Premium: ${formatCurrency(item.totalPremium)}`
+        );
+      }
+    }
+
+    const facSection =
+      facLines.length > 0
+        ? `\nFAC cover required for:\n${facLines.join("\n")}\n`
+        : `\nFAC cover required for:\n- None\n`;
+
+    return [
+      `Forward to Reinsurer (${type === "PROP" ? "Prop" : "Non-Prop"})`,
+      ``,
+      `Insured Name: ${insuredName}`,
+      `Policy No: ${policyNo}`,
+      `Marketer: ${marketer}`,
+      `Risk Address: ${riskAddress}`,
+      `Occupancy: ${occupancy}`,
+      `Construction: ${construction}`,
+      ``,
+      `Policy Total Sum Insured: ${formatCurrency(totals.totalSumInsured)}`,
+      `Policy Total Premium: ${formatCurrency(totals.totalPremium)}`,
+      `Internal Approval Process: ${totals.internalApprovalProcess}`,
+      facSection,
+      `Notes:`,
+      reinsurerNotes ? reinsurerNotes : "-",
+    ].join("\n");
   }
   
   // Generate policy number on mount
@@ -1750,6 +1834,210 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
         </div>
       )}
 
+      {forwardModalOpen && forwardType && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-3xl overflow-hidden rounded-2xl border border-border/70 bg-background shadow-2xl">
+            <div className="flex items-start justify-between gap-3 border-b bg-gradient-to-r from-muted/30 to-background px-6 py-4">
+              <div>
+                <div className="text-base font-semibold text-foreground">Forward to Reinsurer</div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Placement type:{" "}
+                  <span className="font-semibold text-foreground">
+                    {forwardType === "PROP" ? "Prop" : "Non-Prop"}
+                  </span>
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-lg border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground hover:bg-muted/50"
+                onClick={() => setForwardModalOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="space-y-5 px-6 py-5">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Reinsurer Name
+                  </label>
+                  <input
+                    type="text"
+                    className="input-modern"
+                    value={reinsurerName}
+                    onChange={(e) => setReinsurerName(e.target.value)}
+                    placeholder="e.g. Gen Re"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Reinsurer Email
+                  </label>
+                  <input
+                    type="email"
+                    className="input-modern"
+                    value={reinsurerEmail}
+                    onChange={(e) => setReinsurerEmail(e.target.value)}
+                    placeholder="reinsurer@example.com"
+                  />
+                </div>
+                <div className="space-y-1.5 md:col-span-2">
+                  <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Notes
+                  </label>
+                  <textarea
+                    className="input-modern min-h-[96px]"
+                    value={reinsurerNotes}
+                    onChange={(e) => setReinsurerNotes(e.target.value)}
+                    placeholder="Any extra context to include for the reinsurer..."
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <div className="text-sm font-semibold text-foreground">Auto-filled submission details</div>
+                  <div className="text-xs text-muted-foreground">Read-only</div>
+                </div>
+                <textarea
+                  className="w-full rounded-lg border border-border/60 bg-background/60 p-3 font-mono text-xs leading-5 text-foreground outline-none focus:ring-2 focus:ring-primary"
+                  value={buildForwardToReinsurerText(forwardType)}
+                  readOnly
+                  rows={14}
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t bg-muted/10 px-6 py-4">
+              <button
+                type="button"
+                className="rounded-lg border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted/50"
+                onClick={async () => {
+                  const text = buildForwardToReinsurerText(forwardType);
+                  try {
+                    await navigator.clipboard.writeText(text);
+                    alert("Forward-to-reinsurer details copied to clipboard.");
+                  } catch {
+                    alert("Could not copy to clipboard. Please copy manually from the text area.");
+                  }
+                }}
+              >
+                Copy details
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                onClick={() => {
+                  alert("Forward request prepared. Implement email/API sending next.");
+                  setForwardModalOpen(false);
+                }}
+              >
+                Forward
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {submitReinsurersOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-3xl overflow-hidden rounded-2xl border border-border/70 bg-background shadow-2xl">
+            <div className="flex items-start justify-between gap-3 border-b bg-gradient-to-r from-muted/30 to-background px-6 py-4">
+              <div>
+                <div className="text-base font-semibold text-foreground">Submit to Reinsurers</div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Send the submission details to multiple reinsurers (stub UX — email/API wiring next).
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-lg border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground hover:bg-muted/50"
+                onClick={() => setSubmitReinsurersOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="space-y-5 px-6 py-5">
+              <div className="grid gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">To</label>
+                  <input
+                    type="text"
+                    className="input-modern"
+                    value={submitReinsurersTo}
+                    onChange={(e) => setSubmitReinsurersTo(e.target.value)}
+                    placeholder="email1@reinsurer.com, email2@reinsurer.com"
+                  />
+                  <p className="text-xs text-muted-foreground">Comma-separated emails.</p>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">CC</label>
+                  <input
+                    type="text"
+                    className="input-modern"
+                    value={submitReinsurersCc}
+                    onChange={(e) => setSubmitReinsurersCc(e.target.value)}
+                    placeholder="optional@cedewise.com"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Subject</label>
+                  <input
+                    type="text"
+                    className="input-modern"
+                    value={submitReinsurersSubject}
+                    onChange={(e) => setSubmitReinsurersSubject(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <div className="text-sm font-semibold text-foreground">Submission details</div>
+                  <div className="text-xs text-muted-foreground">Read-only</div>
+                </div>
+                <textarea
+                  className="w-full rounded-lg border border-border/60 bg-background/60 p-3 font-mono text-xs leading-5 text-foreground outline-none focus:ring-2 focus:ring-primary"
+                  value={buildSubmitToReinsurersText()}
+                  readOnly
+                  rows={14}
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t bg-muted/10 px-6 py-4">
+              <button
+                type="button"
+                className="rounded-lg border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted/50"
+                onClick={async () => {
+                  const text = buildSubmitToReinsurersText();
+                  try {
+                    await navigator.clipboard.writeText(text);
+                    alert("Submission details copied to clipboard.");
+                  } catch {
+                    alert("Could not copy to clipboard. Please copy manually from the text area.");
+                  }
+                }}
+              >
+                Copy details
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+                onClick={() => {
+                  alert("Submit-to-reinsurers prepared. Implement email/API sending next.");
+                  setSubmitReinsurersOpen(false);
+                }}
+              >
+                Submit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between border-t pt-4">
         <button
           type="button"
@@ -1758,24 +2046,74 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
         >
           {step === 1 ? "Cancel" : "Back"}
         </button>
-        {step < 4 ? (
+        {step < 3 ? (
           <button type="button" onClick={next} className="btn-primary px-6">
             Next
           </button>
         ) : (
-          <button
-            type="submit"
-            className="btn-primary px-6"
-            disabled={createSubmission.isPending || updateSubmission.isPending}
-          >
-            {createSubmission.isPending || updateSubmission.isPending
-              ? submissionId
-                ? "Updating..."
-                : "Submitting..."
-              : submissionId
-              ? "Update Submission"
-              : "Submit Submission"}
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="relative" ref={forwardMenuRef}>
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground shadow-sm hover:bg-muted/50"
+                onClick={() => setForwardMenuOpen((v) => !v)}
+              >
+                Forward to Reinsurer
+                <ChevronDown className={`h-4 w-4 transition-transform ${forwardMenuOpen ? "rotate-180" : ""}`} />
+              </button>
+              {forwardMenuOpen && (
+                <div className="absolute right-0 mt-2 w-52 overflow-hidden rounded-xl border border-border bg-background shadow-2xl">
+                  <div className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Select placement type
+                  </div>
+                  <button
+                    type="button"
+                    className="w-full px-3 py-2 text-left text-sm font-medium hover:bg-muted/50"
+                    onClick={() => {
+                      setForwardMenuOpen(false);
+                      setForwardType("PROP");
+                      setForwardModalOpen(true);
+                    }}
+                  >
+                    Prop
+                    <div className="text-xs text-muted-foreground">Proportional</div>
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full px-3 py-2 text-left text-sm font-medium hover:bg-muted/50"
+                    onClick={() => {
+                      setForwardMenuOpen(false);
+                      setForwardType("NON_PROP");
+                      setForwardModalOpen(true);
+                    }}
+                  >
+                    Non-Prop
+                    <div className="text-xs text-muted-foreground">Non-proportional</div>
+                  </button>
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
+              onClick={() => setSubmitReinsurersOpen(true)}
+            >
+              Submit to Reinsurers
+            </button>
+            <button
+              type="submit"
+              className="btn-primary px-6"
+              disabled={createSubmission.isPending || updateSubmission.isPending}
+            >
+              {createSubmission.isPending || updateSubmission.isPending
+                ? submissionId
+                  ? "Updating..."
+                  : "Submitting..."
+                : submissionId
+                ? "Update Submission"
+                : "Submit Submission"}
+            </button>
+          </div>
         )}
       </div>
     </form>
