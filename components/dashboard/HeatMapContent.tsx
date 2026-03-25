@@ -146,6 +146,61 @@ const BASE_CITY_DATA: CityRow[] = [
   { city: "Polokwane", region: "Limpopo", riskCount: 120, boundPremiumM: 5.4, lossRatio: 0.51, trend: [0.9, 0.92, 0.93, 0.96, 0.97, 1.0, 1.02], severityIndex: 0.5 },
 ];
 
+// Expanded South African cities/towns list (UI-only). Metrics are generated deterministically.
+const SA_CITIES: { city: string; region: string }[] = [
+  // Gauteng
+  { city: "Soweto", region: "Gauteng" },
+  { city: "Sandton", region: "Gauteng" },
+  { city: "Midrand", region: "Gauteng" },
+  { city: "Centurion", region: "Gauteng" },
+  { city: "Kempton Park", region: "Gauteng" },
+  { city: "Benoni", region: "Gauteng" },
+  { city: "Boksburg", region: "Gauteng" },
+  { city: "Germiston", region: "Gauteng" },
+  { city: "Vereeniging", region: "Gauteng" },
+  { city: "Krugersdorp", region: "Gauteng" },
+  // Western Cape
+  { city: "Stellenbosch", region: "Western Cape" },
+  { city: "Paarl", region: "Western Cape" },
+  { city: "George", region: "Western Cape" },
+  { city: "Mossel Bay", region: "Western Cape" },
+  { city: "Worcester", region: "Western Cape" },
+  { city: "Somerset West", region: "Western Cape" },
+  { city: "Knysna", region: "Western Cape" },
+  // KwaZulu-Natal
+  { city: "Pietermaritzburg", region: "KwaZulu-Natal" },
+  { city: "Richards Bay", region: "KwaZulu-Natal" },
+  { city: "Newcastle", region: "KwaZulu-Natal" },
+  { city: "Empangeni", region: "KwaZulu-Natal" },
+  { city: "Ladysmith", region: "KwaZulu-Natal" },
+  // Eastern Cape
+  { city: "East London", region: "Eastern Cape" },
+  { city: "Mthatha", region: "Eastern Cape" },
+  { city: "Queenstown", region: "Eastern Cape" },
+  { city: "Grahamstown (Makhanda)", region: "Eastern Cape" },
+  // Free State
+  { city: "Welkom", region: "Free State" },
+  { city: "Kroonstad", region: "Free State" },
+  { city: "Sasolburg", region: "Free State" },
+  // Mpumalanga
+  { city: "eMalahleni (Witbank)", region: "Mpumalanga" },
+  { city: "Secunda", region: "Mpumalanga" },
+  { city: "Middelburg", region: "Mpumalanga" },
+  // Limpopo
+  { city: "Tzaneen", region: "Limpopo" },
+  { city: "Thohoyandou", region: "Limpopo" },
+  { city: "Mokopane", region: "Limpopo" },
+  // North West
+  { city: "Rustenburg", region: "North West" },
+  { city: "Mahikeng", region: "North West" },
+  { city: "Potchefstroom", region: "North West" },
+  { city: "Klerksdorp", region: "North West" },
+  // Northern Cape
+  { city: "Kimberley", region: "Northern Cape" },
+  { city: "Upington", region: "Northern Cape" },
+  { city: "Springbok", region: "Northern Cape" },
+];
+
 const BASE_RISK_CATEGORIES: CategoryRow[] = [
   { category: "Commercial Property", riskCount: 1_820, boundPremiumM: 92.4, lossRatio: 0.55 },
   { category: "General Liability", riskCount: 1_080, boundPremiumM: 44.1, lossRatio: 0.49 },
@@ -236,6 +291,8 @@ export default function HeatMapContent() {
   const [timeRange, setTimeRange] = useState<TimeRange>("90d");
   const [lob, setLob] = useState<LineOfBusiness>("All lines");
   const [hoveredRegion, setHoveredRegion] = useState<string | null>(null);
+  const [selectedCity, setSelectedCity] = useState<CityRow | null>(null);
+  const [hoveredCity, setHoveredCity] = useState<string | null>(null);
 
   const timeFactor: Record<TimeRange, number> = {
     "30d": 0.28,
@@ -262,7 +319,33 @@ export default function HeatMapContent() {
 
   const cityData = useMemo(() => {
     const tf = timeFactor[timeRange];
-    return BASE_CITY_DATA.map((c) => {
+    const generated: CityRow[] = SA_CITIES.map((c) => {
+      const u = hashToUnit(c.city);
+      const u2 = hashToUnit(`${c.city}:${c.region}`);
+      const baseRisk = 40 + Math.round(u * 420); // 40..460
+      const basePremium = 1.2 + u2 * 18.5; // 1.2..19.7
+      const baseLR = clamp01(0.28 + hashToUnit(`${c.city}:lr`) * 0.55); // ~0.28..0.83
+      const baseSev = clamp01(0.3 + hashToUnit(`${c.city}:sev`) * 0.65); // ~0.30..0.95
+      const trendBase = 0.88 + hashToUnit(`${c.city}:t`) * 0.18;
+      const trend = Array.from({ length: 7 }, (_, i) => trendBase + Math.sin((i / 6) * Math.PI) * 0.08);
+      return {
+        city: c.city,
+        region: c.region,
+        riskCount: baseRisk,
+        boundPremiumM: Number(basePremium.toFixed(1)),
+        lossRatio: baseLR,
+        severityIndex: baseSev,
+        trend,
+      };
+    });
+
+    const all = [...BASE_CITY_DATA, ...generated].reduce<CityRow[]>((acc, c) => {
+      if (acc.some((x) => x.city === c.city)) return acc;
+      acc.push(c);
+      return acc;
+    }, []);
+
+    return all.map((c) => {
       const lobJitter = lob === "All lines" ? 1 : 0.9 + hashToUnit(`${c.city}:${lob}`) * 0.28;
       const lrJitter = lob === "All lines" ? 1 : 0.95 + hashToUnit(`${lob}:${c.city}:lr`) * 0.16;
       return {
@@ -419,14 +502,14 @@ export default function HeatMapContent() {
       {selectedView === "regions" && (
         <div className="rounded-lg border bg-card p-6 shadow-sm">
           <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-base font-semibold">Regional Risk Distribution</h3>
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              <span className="hidden sm:inline">Low</span>
+            <h3 className="text-base font-semibold">Risk Heat Map (Impact × Probability)</h3>
+            <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground">
+              <span>Low</span>
               <div
                 className="h-2 w-40 rounded-full border"
                 style={{
                   background:
-                    "linear-gradient(90deg, hsl(215 85% 54%) 0%, hsl(190 85% 54%) 25%, hsl(55 90% 56%) 55%, hsl(25 90% 55%) 78%, hsl(0 85% 52%) 100%)",
+                    "linear-gradient(90deg, #10B981 0%, #A3E635 22%, #FACC15 52%, #FB923C 78%, #EF4444 100%)",
                 }}
                 aria-hidden="true"
               />
@@ -434,248 +517,254 @@ export default function HeatMapContent() {
             </div>
           </div>
 
-          {/* South Africa Map with Heat Overlay */}
-          <div className="relative mb-6 overflow-hidden rounded-lg border bg-gradient-to-br from-background via-primary/5 to-accent/10 p-6">
-            {/* Subtle "heat haze" */}
-            <div
-              className="pointer-events-none absolute inset-0 opacity-80"
-              style={{
-                background:
-                  "radial-gradient(800px 400px at 65% 35%, hsla(25deg 90% 55% / 0.18) 0%, transparent 60%), radial-gradient(700px 420px at 35% 55%, hsla(190deg 85% 54% / 0.14) 0%, transparent 60%), radial-gradient(520px 360px at 50% 80%, hsla(0deg 85% 52% / 0.10) 0%, transparent 60%)",
-              }}
-            />
-            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,hsl(var(--border)/0.25)_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--border)/0.25)_1px,transparent_1px)] [background-size:28px_28px] opacity-40" />
+          {/* Impact × Probability matrix */}
+          <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
+            <div className="relative overflow-hidden rounded-2xl border bg-background p-4">
+              <div
+                className="absolute inset-0"
+                style={{
+                  background:
+                    "linear-gradient(90deg, rgba(16,185,129,0.95) 0%, rgba(163,230,53,0.95) 25%, rgba(250,204,21,0.95) 52%, rgba(251,146,60,0.95) 78%, rgba(239,68,68,0.95) 100%)",
+                  filter: "saturate(1.05)",
+                }}
+                aria-hidden="true"
+              />
+              <div
+                className="pointer-events-none absolute inset-0 opacity-55"
+                style={{
+                  background:
+                    "radial-gradient(900px 380px at 22% 72%, rgba(255,255,255,0.16) 0%, transparent 60%), radial-gradient(760px 360px at 78% 30%, rgba(0,0,0,0.10) 0%, transparent 55%)",
+                }}
+                aria-hidden="true"
+              />
 
-            {/* South Africa Map Outline with Provinces - Heat Overlay */}
-            <div className="relative z-[2] mx-auto" style={{ maxWidth: "100%", height: "500px" }}>
-              <svg 
-                viewBox="0 0 800 1000" 
-                className="h-full w-full"
-                preserveAspectRatio="xMidYMid meet"
-              >
-                <defs>
-                  <filter id="glow">
-                    <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
-                    <feMerge>
-                      <feMergeNode in="coloredBlur"/>
-                      <feMergeNode in="SourceGraphic"/>
-                    </feMerge>
-                  </filter>
-                  <filter id="mapShadow">
-                    <feDropShadow dx="2" dy="2" stdDeviation="3" floodColor="rgba(0,0,0,0.2)"/>
-                  </filter>
-                </defs>
-                
-                {/* Simplified but recognizable South African provinces */}
-                {/* Western Cape - Bottom left, coastal shape */}
-                <path
-                  d="M 120 900 L 120 850 L 140 800 L 180 750 L 220 720 L 260 700 L 280 720 L 300 760 L 280 800 L 240 830 L 200 860 L 150 880 Z"
-                  fill={getHeatColor(regionScore01("Western Cape"), 0.85)}
-                  stroke="white"
-                  strokeWidth="2.5"
-                  className="cursor-pointer hover:opacity-90 transition-all hover:scale-[1.02]"
-                  onClick={() => setSelectedRegion("Western Cape")}
-                  filter={selectedRegion === "Western Cape" ? "url(#glow)" : ""}
-                  onMouseEnter={() => setHoveredRegion("Western Cape")}
-                  onMouseLeave={() => setHoveredRegion(null)}
-                />
-                <text x="220" y="800" fontSize="16" fill="white" fontWeight="bold" textAnchor="middle" pointerEvents="none" className="drop-shadow-lg">
-                  WC
-                </text>
+              {/* grid lines */}
+              <div className="pointer-events-none absolute inset-4 rounded-xl bg-[linear-gradient(to_right,rgba(255,255,255,0.28)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.28)_1px,transparent_1px)] [background-size:20%_20%]" />
 
-                {/* Northern Cape - Large central area */}
-                <path
-                  d="M 200 450 L 280 420 L 380 430 L 480 460 L 520 490 L 500 530 L 420 550 L 320 540 L 220 520 L 180 480 Z"
-                  fill={getHeatColor(regionScore01("Northern Cape"), 0.78)}
-                  stroke="white"
-                  strokeWidth="2.5"
-                  className="cursor-pointer hover:opacity-90 transition-all hover:scale-[1.02]"
-                  onClick={() => setSelectedRegion("Northern Cape")}
-                  filter={selectedRegion === "Northern Cape" ? "url(#glow)" : ""}
-                  onMouseEnter={() => setHoveredRegion("Northern Cape")}
-                  onMouseLeave={() => setHoveredRegion(null)}
-                />
-                <text x="360" y="490" fontSize="16" fill="white" fontWeight="bold" textAnchor="middle" pointerEvents="none" className="drop-shadow-lg">
-                  NC
-                </text>
+              <div className="relative z-[2] aspect-[16/8] rounded-xl">
+                <svg viewBox="0 0 1000 520" className="h-full w-full">
+                  <defs>
+                    <filter id="cityGlow" x="-50%" y="-50%" width="200%" height="200%">
+                      <feGaussianBlur stdDeviation="6" result="blur" />
+                      <feColorMatrix
+                        in="blur"
+                        type="matrix"
+                        values="
+                          1 0 0 0 0
+                          0 1 0 0 0
+                          0 0 1 0 0
+                          0 0 0 0.55 0
+                        "
+                        result="glow"
+                      />
+                      <feMerge>
+                        <feMergeNode in="glow" />
+                        <feMergeNode in="SourceGraphic" />
+                      </feMerge>
+                    </filter>
+                    <filter id="cityShadow" x="-50%" y="-50%" width="200%" height="200%">
+                      <feDropShadow dx="0" dy="2" stdDeviation="2.5" floodColor="rgba(0,0,0,0.35)" />
+                    </filter>
+                  </defs>
+                  {/* Axis labels */}
+                  <text x="18" y="260" fill="rgba(0,0,0,0.55)" fontSize="16" fontWeight="700" transform="rotate(-90 18 260)">
+                    IMPACT
+                  </text>
+                  <text x="500" y="508" fill="rgba(0,0,0,0.55)" fontSize="16" fontWeight="700" textAnchor="middle">
+                    PROBABILITY
+                  </text>
 
-                {/* Eastern Cape - Bottom right, coastal */}
-                <path
-                  d="M 320 850 L 340 800 L 400 780 L 480 800 L 540 830 L 580 880 L 560 920 L 500 940 L 420 930 L 360 900 Z"
-                  fill={getHeatColor(regionScore01("Eastern Cape"), 0.82)}
-                  stroke="white"
-                  strokeWidth="2.5"
-                  className="cursor-pointer hover:opacity-90 transition-all hover:scale-[1.02]"
-                  onClick={() => setSelectedRegion("Eastern Cape")}
-                  filter={selectedRegion === "Eastern Cape" ? "url(#glow)" : ""}
-                  onMouseEnter={() => setHoveredRegion("Eastern Cape")}
-                  onMouseLeave={() => setHoveredRegion(null)}
-                />
-                <text x="450" y="890" fontSize="16" fill="white" fontWeight="bold" textAnchor="middle" pointerEvents="none" className="drop-shadow-lg">
-                  EC
-                </text>
+                  {(() => {
+                    const points = cityData.map((c) => {
+                      const p = clamp01(c.lossRatio); // probability proxy
+                      const i = clamp01(c.severityIndex); // impact proxy
+                      return {
+                        city: c,
+                        ax: 80 + p * 860,
+                        ay: 440 - i * 360,
+                        x: 80 + p * 860,
+                        y: 440 - i * 360,
+                      };
+                    });
 
-                {/* Free State - Center */}
-                <path
-                  d="M 400 580 L 450 560 L 520 570 L 560 610 L 540 660 L 480 680 L 420 670 L 380 630 Z"
-                  fill={getHeatColor(regionScore01("Free State"), 0.82)}
-                  stroke="white"
-                  strokeWidth="2.5"
-                  className="cursor-pointer hover:opacity-90 transition-all hover:scale-[1.02]"
-                  onClick={() => setSelectedRegion("Free State")}
-                  filter={selectedRegion === "Free State" ? "url(#glow)" : ""}
-                  onMouseEnter={() => setHoveredRegion("Free State")}
-                  onMouseLeave={() => setHoveredRegion(null)}
-                />
-                <text x="470" y="625" fontSize="16" fill="white" fontWeight="bold" textAnchor="middle" pointerEvents="none" className="drop-shadow-lg">
-                  FS
-                </text>
+                    // Spread points while staying aligned to true Impact/Probability anchors.
+                    // Repel reduces overlap; spring keeps points near anchor.
+                    const minDist = 34; // dot spacing
+                    const maxIter = 22;
+                    const springK = 0.18; // pull-back to anchor strength
+                    const clamped = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-                {/* KwaZulu-Natal - East coast */}
-                <path
-                  d="M 540 780 L 580 750 L 650 740 L 700 770 L 720 820 L 680 860 L 620 870 L 560 850 Z"
-                  fill={getHeatColor(regionScore01("KwaZulu-Natal"), 0.88)}
-                  stroke="white"
-                  strokeWidth="2.5"
-                  className="cursor-pointer hover:opacity-90 transition-all hover:scale-[1.02]"
-                  onClick={() => setSelectedRegion("KwaZulu-Natal")}
-                  filter={selectedRegion === "KwaZulu-Natal" ? "url(#glow)" : ""}
-                  onMouseEnter={() => setHoveredRegion("KwaZulu-Natal")}
-                  onMouseLeave={() => setHoveredRegion(null)}
-                />
-                <text x="630" y="815" fontSize="16" fill="white" fontWeight="bold" textAnchor="middle" pointerEvents="none" className="drop-shadow-lg">
-                  KZN
-                </text>
+                    const arranged = points.map((p) => ({ ...p }));
+                    for (let iter = 0; iter < maxIter; iter++) {
+                      let moved = false;
+                      for (let a = 0; a < arranged.length; a++) {
+                        for (let b = a + 1; b < arranged.length; b++) {
+                          const dx = arranged[b].x - arranged[a].x;
+                          const dy = arranged[b].y - arranged[a].y;
+                          const d = Math.hypot(dx, dy) || 0.001;
+                          if (d >= minDist) continue;
 
-                {/* Gauteng - Small central area */}
-                <path
-                  d="M 480 600 L 520 580 L 580 590 L 600 630 L 580 670 L 540 680 L 500 660 Z"
-                  fill={getHeatColor(regionScore01("Gauteng"), 0.92)}
-                  stroke="white"
-                  strokeWidth="2.5"
-                  className="cursor-pointer hover:opacity-90 transition-all hover:scale-[1.02]"
-                  onClick={() => setSelectedRegion("Gauteng")}
-                  filter={selectedRegion === "Gauteng" ? "url(#glow)" : ""}
-                  onMouseEnter={() => setHoveredRegion("Gauteng")}
-                  onMouseLeave={() => setHoveredRegion(null)}
-                />
-                <text x="540" y="630" fontSize="16" fill="white" fontWeight="bold" textAnchor="middle" pointerEvents="none" className="drop-shadow-lg">
-                  GP
-                </text>
+                          // Push away from each other
+                          const push = (minDist - d) / 2;
+                          const ux = dx / d;
+                          const uy = dy / d;
 
-                {/* Mpumalanga - Northeast */}
-                <path
-                  d="M 600 630 L 650 620 L 700 640 L 720 680 L 700 720 L 650 730 L 600 710 L 580 670 Z"
-                  fill={getHeatColor(regionScore01("Mpumalanga"), 0.84)}
-                  stroke="white"
-                  strokeWidth="2.5"
-                  className="cursor-pointer hover:opacity-90 transition-all hover:scale-[1.02]"
-                  onClick={() => setSelectedRegion("Mpumalanga")}
-                  filter={selectedRegion === "Mpumalanga" ? "url(#glow)" : ""}
-                  onMouseEnter={() => setHoveredRegion("Mpumalanga")}
-                  onMouseLeave={() => setHoveredRegion(null)}
-                />
-                <text x="650" y="680" fontSize="16" fill="white" fontWeight="bold" textAnchor="middle" pointerEvents="none" className="drop-shadow-lg">
-                  MP
-                </text>
+                          arranged[a].x -= ux * push;
+                          arranged[a].y -= uy * push;
+                          arranged[b].x += ux * push;
+                          arranged[b].y += uy * push;
+                          moved = true;
+                        }
+                      }
 
-                {/* Limpopo - North */}
-                <path
-                  d="M 600 480 L 660 460 L 720 480 L 740 530 L 720 580 L 660 590 L 600 570 L 580 520 Z"
-                  fill={getHeatColor(regionScore01("Limpopo"), 0.84)}
-                  stroke="white"
-                  strokeWidth="2.5"
-                  className="cursor-pointer hover:opacity-90 transition-all hover:scale-[1.02]"
-                  onClick={() => setSelectedRegion("Limpopo")}
-                  filter={selectedRegion === "Limpopo" ? "url(#glow)" : ""}
-                  onMouseEnter={() => setHoveredRegion("Limpopo")}
-                  onMouseLeave={() => setHoveredRegion(null)}
-                />
-                <text x="660" y="530" fontSize="16" fill="white" fontWeight="bold" textAnchor="middle" pointerEvents="none" className="drop-shadow-lg">
-                  LP
-                </text>
+                      // Spring back to anchors (keeps alignment meaningful)
+                      for (const p of arranged) {
+                        p.x += (p.ax - p.x) * springK;
+                        p.y += (p.ay - p.y) * springK;
+                      }
 
-                {/* North West - Northwest */}
-                <path
-                  d="M 400 480 L 480 460 L 560 480 L 580 530 L 560 580 L 480 590 L 400 570 L 380 520 Z"
-                  fill={getHeatColor(regionScore01("North West"), 0.84)}
-                  stroke="white"
-                  strokeWidth="2.5"
-                  className="cursor-pointer hover:opacity-90 transition-all hover:scale-[1.02]"
-                  onClick={() => setSelectedRegion("North West")}
-                  filter={selectedRegion === "North West" ? "url(#glow)" : ""}
-                  onMouseEnter={() => setHoveredRegion("North West")}
-                  onMouseLeave={() => setHoveredRegion(null)}
-                />
-                <text x="480" y="530" fontSize="16" fill="white" fontWeight="bold" textAnchor="middle" pointerEvents="none" className="drop-shadow-lg">
-                  NW
-                </text>
+                      // Keep within chart bounds (padding for labels)
+                      for (const p of arranged) {
+                        p.x = clamped(p.x, 70, 930);
+                        p.y = clamped(p.y, 80, 460);
+                      }
 
-                {/* Map Title */}
-                <text x="400" y="40" fontSize="20" fill="currentColor" fontWeight="bold" textAnchor="middle" className="text-foreground">
-                  South Africa – {metricLabel(metric)}
-                </text>
-              </svg>
-            </div>
+                      if (!moved) break;
+                    }
 
-            {/* Legend overlay */}
-            <div className="absolute bottom-4 right-4 z-[3] max-w-[320px] rounded-lg border border-white/10 bg-black/60 px-4 py-3 text-xs text-white backdrop-blur">
-              <div className="flex items-center justify-between gap-3">
-                <div className="font-semibold">Hover for details</div>
-                <div className="text-[10px] opacity-80">Click to pin</div>
+                    return arranged.map((pt) => (
+                      <g
+                        key={pt.city.city}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Open ${pt.city.city} details`}
+                        className="cursor-pointer"
+                        onClick={() => setSelectedCity(pt.city)}
+                        onMouseEnter={() => setHoveredCity(pt.city.city)}
+                        onMouseLeave={() => setHoveredCity(null)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") setSelectedCity(pt.city);
+                        }}
+                      >
+                        {/* Outer clickable target */}
+                        <circle
+                          cx={pt.x}
+                          cy={pt.y}
+                          r="16"
+                          fill="transparent"
+                        />
+
+                        {/* Hover ring */}
+                        <circle
+                          cx={pt.x}
+                          cy={pt.y}
+                          r={hoveredCity === pt.city.city || selectedCity?.city === pt.city.city ? 15 : 13}
+                          fill="rgba(255,255,255,0.16)"
+                          stroke="rgba(255,255,255,0.55)"
+                          strokeWidth="1.5"
+                          filter={hoveredCity === pt.city.city || selectedCity?.city === pt.city.city ? "url(#cityGlow)" : "url(#cityShadow)"}
+                          style={{ transition: "all 140ms ease" }}
+                        />
+
+                        {/* Inner dot */}
+                        <circle
+                          cx={pt.x}
+                          cy={pt.y}
+                          r={hoveredCity === pt.city.city || selectedCity?.city === pt.city.city ? 7 : 6}
+                          fill="rgba(255,255,255,0.96)"
+                          style={{ transition: "all 140ms ease" }}
+                        />
+
+                        {/* Label */}
+                        {hoveredCity === pt.city.city || selectedCity?.city === pt.city.city ? (
+                          <text
+                            x={pt.x + 18}
+                            y={pt.y + 5}
+                            fontSize="13"
+                            fill="rgba(255,255,255,0.96)"
+                            fontWeight="800"
+                            style={{
+                              paintOrder: "stroke",
+                              stroke: "rgba(0,0,0,0.28)",
+                              strokeWidth: 3,
+                            }}
+                          >
+                            {pt.city.city}
+                          </text>
+                        ) : null}
+                      </g>
+                    ));
+                  })()}
+                </svg>
               </div>
-              <div className="mt-2 flex items-center gap-2">
-                <span className="text-[10px] opacity-80">Low</span>
-                <div
-                  className="h-2 flex-1 rounded-full"
-                  style={{
-                    background:
-                      "linear-gradient(90deg, hsl(215 85% 54%) 0%, hsl(190 85% 54%) 25%, hsl(55 90% 56%) 55%, hsl(25 90% 55%) 78%, hsl(0 85% 52%) 100%)",
-                  }}
-                />
-                <span className="text-[10px] opacity-80">High</span>
-              </div>
-            </div>
 
-            {hoveredRegionData && (
-              <div className="absolute left-4 top-4 z-[4] w-[280px] rounded-xl border bg-card/95 p-4 shadow-lg backdrop-blur">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold">{hoveredRegionData.region}</div>
-                    <div className="mt-0.5 text-xs text-muted-foreground">
-                      {timeRange === "30d" ? "Last 30 days" : timeRange === "90d" ? "Last 90 days" : timeRange === "ytd" ? "YTD" : "Last 12 months"} · {lob}
+              {selectedCity && (
+                <div className="absolute left-6 top-6 z-[5] w-[320px] rounded-2xl border border-white/20 bg-black/60 p-4 text-white shadow-xl backdrop-blur">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold">{selectedCity.city}</div>
+                      <div className="mt-0.5 text-xs text-white/80">{selectedCity.region}</div>
+                    </div>
+                    <button
+                      type="button"
+                      className="rounded-lg border border-white/20 bg-white/10 px-2 py-1 text-xs font-semibold hover:bg-white/15"
+                      onClick={() => setSelectedCity(null)}
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded-lg border border-white/15 bg-white/10 p-2">
+                      <div className="text-white/70">Active risks</div>
+                      <div className="mt-0.5 text-sm font-semibold">{selectedCity.riskCount.toLocaleString()}</div>
+                    </div>
+                    <div className="rounded-lg border border-white/15 bg-white/10 p-2">
+                      <div className="text-white/70">Bound premium</div>
+                      <div className="mt-0.5 text-sm font-semibold">{formatCurrencyM(selectedCity.boundPremiumM)}</div>
+                    </div>
+                    <div className="rounded-lg border border-white/15 bg-white/10 p-2">
+                      <div className="text-white/70">Loss ratio</div>
+                      <div className="mt-0.5 text-sm font-semibold">{formatPct01(selectedCity.lossRatio)}</div>
+                    </div>
+                    <div className="rounded-lg border border-white/15 bg-white/10 p-2">
+                      <div className="text-white/70">Impact index</div>
+                      <div className="mt-0.5 text-sm font-semibold">{Math.round(selectedCity.severityIndex * 100)}%</div>
                     </div>
                   </div>
-                  <div className={`rounded-full border px-2 py-0.5 text-[11px] ${severityChipClass(regionScore01(hoveredRegionData.region))}`}>
-                    {metricLabel(metric)}
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      type="button"
+                      className="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-black hover:bg-white/90"
+                      onClick={() => {
+                        setSelectedView("cities");
+                        setSelectedRegion(selectedCity.region);
+                      }}
+                    >
+                      View in Cities
+                    </button>
                   </div>
                 </div>
-                <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
-                  <div className="rounded-lg border bg-muted/30 p-2">
-                    <div className="text-muted-foreground">Active risks</div>
-                    <div className="mt-0.5 text-sm font-semibold">{hoveredRegionData.riskCount.toLocaleString()}</div>
-                  </div>
-                  <div className="rounded-lg border bg-muted/30 p-2">
-                    <div className="text-muted-foreground">Bound premium</div>
-                    <div className="mt-0.5 text-sm font-semibold">{formatCurrencyM(hoveredRegionData.boundPremiumM)}</div>
-                  </div>
-                  <div className="rounded-lg border bg-muted/30 p-2">
-                    <div className="text-muted-foreground">Loss ratio</div>
-                    <div className="mt-0.5 text-sm font-semibold">{formatPct01(hoveredRegionData.lossRatio)}</div>
-                  </div>
-                  <div className="rounded-lg border bg-muted/30 p-2">
-                    <div className="text-muted-foreground">Avg TIV</div>
-                    <div className="mt-0.5 text-sm font-semibold">{formatCurrencyM(hoveredRegionData.avgTivM)}</div>
-                  </div>
-                </div>
-                <div className="mt-3">
-                  <div className="text-xs font-semibold">7-day momentum</div>
-                  <div className="mt-1">
-                    <TrendBars values={hoveredRegionData.trend} />
+              )}
+            </div>
+
+            {/* Legend / Explanations */}
+            <div className="space-y-3">
+              {[
+                { c: "#10B981", t: "Low risk", d: "Minimal expected loss. Monitor and maintain controls." },
+                { c: "#A3E635", t: "Guarded", d: "Stable exposure. Review quarterly and validate assumptions." },
+                { c: "#FACC15", t: "Elevated", d: "Action recommended. Improve mitigations and pricing." },
+                { c: "#FB923C", t: "High", d: "Requires approval. Tighten terms and reduce volatility." },
+                { c: "#EF4444", t: "Critical", d: "Immediate attention. Consider FAC, exclusions, or decline." },
+              ].map((x) => (
+                <div key={x.t} className="flex gap-3 rounded-xl border bg-card p-4">
+                  <div className="mt-0.5 h-7 w-7 rounded-lg border" style={{ backgroundColor: x.c }} />
+                  <div>
+                    <div className="text-sm font-semibold">{x.t}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">{x.d}</div>
                   </div>
                 </div>
-              </div>
-            )}
+              ))}
+            </div>
           </div>
 
           {/* Region List */}
