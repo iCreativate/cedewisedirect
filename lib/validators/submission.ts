@@ -30,6 +30,7 @@ export const submissionSchema = z.object({
           z.object({
             insuredNameCalc: z.string().optional(),
             location: z.string().optional(),
+            accumulateRisk: z.boolean().optional(),
             calculationRows: z
               .array(
                 z.object({

@@ -73,6 +73,20 @@ npm run dev -- -p 3005
 
 The app will be available at `http://localhost:3005`
 
+## Deploy to Netlify (or similar)
+
+To fix **"There is a problem with the server configuration"** and 404/500 errors in production, set these environment variables in your host (e.g. Netlify → Site settings → Environment variables):
+
+| Variable | Required | Example |
+|----------|----------|--------|
+| `NEXTAUTH_SECRET` | **Yes** | Generate: `openssl rand -base64 32` |
+| `NEXTAUTH_URL` | **Yes** | Your site URL, e.g. `https://your-site.netlify.app` |
+| `DEMO_MODE` | For demo logins | `true` |
+| `NEXT_PUBLIC_DEMO_MODE` | For demo logins | `true` |
+| `DATABASE_URL` | Only if using DB | `postgresql://...` |
+
+Without `NEXTAUTH_SECRET` and `NEXTAUTH_URL`, auth will fail with a server configuration error. Redeploy after changing env vars.
+
 ## Troubleshooting Login Issues
 
 If you encounter a **401 Unauthorized** error when logging in, follow these steps in order:

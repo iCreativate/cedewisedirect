@@ -67,6 +67,57 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
   const [showNewSectionInput, setShowNewSectionInput] = useState<Record<string, boolean>>({});
   const [showNewSubSectionInput, setShowNewSubSectionInput] = useState<Record<string, boolean>>({});
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [sumInsuredVatInclDisplay, setSumInsuredVatInclDisplay] = useState<Record<string, string>>({});
+  const [premiumVatInclDisplay, setPremiumVatInclDisplay] = useState<Record<string, string>>({});
+  const [facCoverPrompt, setFacCoverPrompt] = useState<{
+    riskAddress: string;
+    insuredName: string;
+    sectionLabel?: string;
+    totalSumInsured: number;
+  } | null>(null);
+  const [facPromptShownForRow, setFacPromptShownForRow] = useState<Record<string, boolean>>({});
+  const [duplicateAddressPrompt, setDuplicateAddressPrompt] = useState<{
+    tableIdx: number;
+    location: string;
+    matchingTableIdxs: number[];
+  } | null>(null);
+
+  function formatThousandsSpaces(value: number): string {
+    const rounded = Math.round(value);
+    return rounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  }
+
+  function formatMoneyZA(value: number): string {
+    return value.toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function parseNumberWithSpaces(raw: string): number | undefined {
+    const cleaned = raw.replace(/[^\d.,\s-]/g, "").replace(/\s+/g, "");
+    if (!cleaned) return undefined;
+
+    // Robust parsing:
+    // - allow spaces/commas/dots as thousands separators
+    // - treat the last ',' or '.' as the decimal separator (if any)
+    const lastComma = cleaned.lastIndexOf(",");
+    const lastDot = cleaned.lastIndexOf(".");
+    const decPos = Math.max(lastComma, lastDot);
+
+    let intPart = cleaned;
+    let fracPart = "";
+    if (decPos > -1) {
+      intPart = cleaned.slice(0, decPos);
+      fracPart = cleaned.slice(decPos + 1);
+    }
+
+    // Remove any remaining separators from integer part
+    intPart = intPart.replace(/[.,]/g, "");
+    // Keep only digits in fractional part
+    fracPart = fracPart.replace(/[.,]/g, "");
+
+    const normalized = fracPart ? `${intPart}.${fracPart}` : intPart;
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
   
   // Generate policy number on mount
   const generatePolicyNo = () => {
@@ -111,6 +162,7 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
           {
             insuredNameCalc: "",
             location: "",
+            accumulateRisk: false,
             calculationRows: [],
           },
         ],
@@ -156,7 +208,7 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
   });
 
   function next() {
-    setStep((s) => Math.min(4, s + 1));
+    setStep((s) => Math.min(3, s + 1));
   }
   function back() {
     if (step === 1) {
@@ -217,10 +269,18 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
   }
 
   // Format currency as R with spaces for thousands and comma for decimals
-  function formatCurrency(amount: number | undefined): string {
-    if (amount === undefined || isNaN(amount)) return "R 0,00";
+  function formatCurrency(amount: unknown): string {
+    const num =
+      typeof amount === "number"
+        ? amount
+        : typeof amount === "string"
+        ? Number(amount.replace(/\s+/g, "").replace(/,/g, "."))
+        : Number(amount);
+
+    if (!Number.isFinite(num)) return "R 0,00";
+
     // Format with spaces as thousands separator and comma as decimal separator
-    const formatted = amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+    const formatted = num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
     return `R ${formatted.replace(".", ",")}`;
   }
 
@@ -234,61 +294,109 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
       return [];
     }
 
-    return calculationTablesData
-      .map((table, tableIdx) => {
-        // Watch the rows for this specific table to ensure reactivity
-        const rows = form.watch(`extra.calculationTables.${tableIdx}.calculationRows`) || table.calculationRows || [];
-        
-        // Calculate totals from all rows
-        const totalSumInsured = rows.reduce((sum, row) => sum + (row.sumInsuredVATIncl || 0), 0);
-        const totalPremium = rows.reduce((sum, row) => sum + (row.premiumVATIncl || 0), 0);
-        
-        // Determine internal approval process based on total sum insured
-        // If total sum insured > 200M, show the amount, otherwise show text
-        const internalApprovalProcess = totalSumInsured > 200000000 
-          ? formatCurrency(totalSumInsured - 200000000) 
-          : "Internal Fac Approval";
-        
-        // Determine external facultative required based on total sum insured
-        // If total sum insured > 200M, request fac cover, otherwise no external fac required
-        const externalFacRequired = totalSumInsured > 200000000 
-          ? "Request Fac Cover" 
-          : "No External Fac Required";
-        
+    const rowItems = calculationTablesData.flatMap((table: any, tableIdx: number) => {
+      const rows =
+        form.watch(`extra.calculationTables.${tableIdx}.calculationRows`) ||
+        table.calculationRows ||
+        [];
+
+      const riskAddress = (table.location || "").trim();
+      const insuredName = (table.insuredNameCalc || "").trim();
+      const accumulateRisk = Boolean(table.accumulateRisk);
+
+      return rows.map((row: any, rowIdx: number) => {
+        const totalSumInsured = Number(row?.sumInsuredVATIncl || 0);
+        const totalPremium = Number(row?.premiumVATIncl || 0);
+
+        const internalApprovalProcess =
+          totalSumInsured > 200000000
+            ? formatCurrency(totalSumInsured - 200000000)
+            : "Internal Fac Approval";
+        const externalFacRequired =
+          totalSumInsured > 200000000 ? "Request Fac Cover" : "No External Fac Required";
+
+        const sectionLabel = [row?.section, row?.subSection].filter(Boolean).join(" - ");
+
         return {
-          riskAddress: table.location || "",
-          insuredName: table.insuredNameCalc || "",
+          tableIdx,
+          rowIdx,
+          accumulateRisk,
+          riskAddress,
+          insuredName,
+          sectionLabel,
           totalSumInsured,
           totalPremium,
           internalApprovalProcess,
           externalFacRequired,
         };
       });
+    });
+
+    const accumulatedRows = rowItems.filter((r) => r.accumulateRisk);
+    const nonAccumulatedRows = rowItems.filter((r) => !r.accumulateRisk);
+
+    if (accumulatedRows.length <= 1) {
+      return rowItems.map(({ tableIdx: _t, rowIdx: _r, accumulateRisk: _a, ...rest }) => rest);
+    }
+
+    // Group accumulated rows by address + section so FIRE/Contents remain separate, but totals still accumulate.
+    const groups = new Map<string, any>();
+    for (const r of accumulatedRows) {
+      const key = `${r.riskAddress}__${r.sectionLabel}`;
+      const existing = groups.get(key);
+      if (!existing) {
+        groups.set(key, {
+          riskAddress: r.riskAddress || "-",
+          insuredName: r.insuredName || "-",
+          sectionLabel: r.sectionLabel || "-",
+          totalSumInsured: r.totalSumInsured,
+          totalPremium: r.totalPremium,
+        });
+      } else {
+        existing.totalSumInsured += r.totalSumInsured;
+        existing.totalPremium += r.totalPremium;
+      }
+    }
+
+    const accumulatedBreakdown = Array.from(groups.values());
+    const accumulatedTotalSumInsured = accumulatedBreakdown.reduce((sum, g) => sum + g.totalSumInsured, 0);
+    const accumulatedTotalPremium = accumulatedBreakdown.reduce((sum, g) => sum + g.totalPremium, 0);
+
+    const accumulatedInternalApprovalProcess =
+      accumulatedTotalSumInsured > 200000000
+        ? formatCurrency(accumulatedTotalSumInsured - 200000000)
+        : "Internal Fac Approval";
+    const accumulatedExternalFacRequired =
+      accumulatedTotalSumInsured > 200000000 ? "Request Fac Cover" : "No External Fac Required";
+
+    const accumulatedRow = {
+      riskAddress: "Accumulated Risk",
+      insuredName:
+        Array.from(new Set(accumulatedRows.map((r) => r.insuredName).filter(Boolean))).join(", ") || "-",
+      sectionLabel: "",
+      totalSumInsured: accumulatedTotalSumInsured,
+      totalPremium: accumulatedTotalPremium,
+      internalApprovalProcess: accumulatedInternalApprovalProcess,
+      externalFacRequired: accumulatedExternalFacRequired,
+      accumulatedBreakdown,
+    };
+
+    return [
+      ...nonAccumulatedRows.map(({ tableIdx: _t, rowIdx: _r, accumulateRisk: _a, ...rest }) => rest),
+      accumulatedRow as any,
+    ];
   })();
 
   // Compute totals
   const totals = useMemo(() => {
     const totalSumInsured = summaryData.reduce((sum, item) => sum + item.totalSumInsured, 0);
     const totalPremium = summaryData.reduce((sum, item) => sum + item.totalPremium, 0);
-    
-    // For internal approval process, use the highest value or sum depending on logic
-    // Based on the image, it seems to show the highest internal approval amount
-    const internalApprovalAmounts = summaryData
-      .map((item) => {
-        const match = item.internalApprovalProcess.match(/R\s([\d\s,]+)/);
-        if (match) {
-          return parseFloat(match[1].replace(/\s/g, "").replace(",", "."));
-        }
-        return 0;
-      })
-      .filter((val) => val > 0);
-    
-    const internalApprovalProcess = internalApprovalAmounts.length > 0
-      ? formatCurrency(Math.max(...internalApprovalAmounts))
-      : summaryData.length > 0 && summaryData[0].totalSumInsured > 200000000
-      ? formatCurrency(totalSumInsured - 200000000)
-      : "Internal Fac Approval";
-    
+
+    const internalApprovalProcess =
+      totalSumInsured > 200000000
+        ? formatCurrency(totalSumInsured - 200000000)
+        : "Internal Fac Approval";
+
     return {
       totalSumInsured,
       totalPremium,
@@ -429,6 +537,79 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
 
       {step === 2 && (
         <div className="space-y-6">
+          {duplicateAddressPrompt && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+              <div className="w-full max-w-lg rounded-2xl border border-border bg-background p-5 shadow-2xl">
+                <div className="text-sm font-semibold text-foreground">Duplicate address detected</div>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  The address{" "}
+                  <span className="font-mono text-foreground">{duplicateAddressPrompt.location}</span> already exists
+                  in another calculation table. Do you want to include this table in <span className="font-semibold">Accumulate Risk</span>?
+                </p>
+                <div className="mt-4 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => setDuplicateAddressPrompt(null)}
+                  >
+                    No
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => {
+                      const idxs = [duplicateAddressPrompt.tableIdx, ...duplicateAddressPrompt.matchingTableIdxs];
+                      for (const idx of idxs) {
+                        form.setValue(`extra.calculationTables.${idx}.accumulateRisk` as const, true as any);
+                      }
+                      setDuplicateAddressPrompt(null);
+                    }}
+                  >
+                    Yes
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          {facCoverPrompt && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+              <div className="w-full max-w-lg rounded-2xl border border-border bg-background p-5 shadow-2xl">
+                <div className="text-sm font-semibold text-foreground">External Facultative Cover Required</div>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  A Sum Insured value requires facultative cover.
+                </p>
+                <div className="mt-3 rounded-lg border bg-muted/30 p-3 text-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-medium text-foreground truncate">
+                        {facCoverPrompt.riskAddress || "-"}
+                      </div>
+                      {facCoverPrompt.sectionLabel ? (
+                        <div className="text-xs text-muted-foreground truncate">{facCoverPrompt.sectionLabel}</div>
+                      ) : null}
+                      <div className="text-xs text-muted-foreground truncate">{facCoverPrompt.insuredName || "-"}</div>
+                    </div>
+                    <div className="shrink-0 font-semibold">{formatCurrency(facCoverPrompt.totalSumInsured)}</div>
+                  </div>
+                </div>
+                <div className="mt-4 flex items-center justify-end gap-2">
+                  <button type="button" className="btn-secondary" onClick={() => setFacCoverPrompt(null)}>
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => {
+                      // Placeholder action: in future, route to a FAC workflow page.
+                      setFacCoverPrompt(null);
+                    }}
+                  >
+                    Request Fac Cover
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold">Calculation Tables</h3>
             <button
@@ -437,6 +618,7 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
                 calculationTables.append({
                   insuredNameCalc: "",
                   location: "",
+                  accumulateRisk: false,
                   calculationRows: [],
                 })
               }
@@ -489,21 +671,77 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
                       label="Insured Name"
                       reg={form.register(`extra.calculationTables.${tableIdx}.insuredNameCalc` as const)}
                     />
-                    <LabeledInput
-                      label="Location"
-                      reg={form.register(`extra.calculationTables.${tableIdx}.location` as const)}
-                    />
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium">Location</label>
+                      {(() => {
+                        const reg = form.register(`extra.calculationTables.${tableIdx}.location` as const);
+                        return (
+                          <input
+                            type="text"
+                            className="input-modern"
+                            placeholder=""
+                            {...reg}
+                            onBlur={(e) => {
+                              reg.onBlur(e);
+                              const location = (e.target.value || "").trim();
+                              if (!location) return;
+                              const normalized = location.toLowerCase();
+                              const matches: number[] = [];
+                              (form.getValues("extra.calculationTables") || []).forEach((t: any, idx: number) => {
+                                if (idx === tableIdx) return;
+                                const loc = (t?.location || "").trim();
+                                if (loc && loc.toLowerCase() === normalized) {
+                                  matches.push(idx);
+                                }
+                              });
+                              if (matches.length > 0) {
+                                setDuplicateAddressPrompt({
+                                  tableIdx,
+                                  location,
+                                  matchingTableIdxs: matches,
+                                });
+                              }
+                            }}
+                          />
+                        );
+                      })()}
+                    </div>
                   </div>
                   <div className="rounded border">
                     <div className="flex items-center justify-between border-b bg-gray-100 p-2">
                       <span className="text-xs font-medium">Rows</span>
-                      <button
-                        type="button"
-                        onClick={addRow}
-                        className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700"
-                      >
-                        Add Row
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <span className="hidden md:inline text-[11px] text-red-600">
+                          If Accumulate Risk is YES, it will summarise all YES tables below as one total (with subtotals by address).
+                        </span>
+                        <button
+                          type="button"
+                          className={`rounded px-3 py-1 text-xs font-semibold ${
+                            form.watch(`extra.calculationTables.${tableIdx}.accumulateRisk` as const)
+                              ? "bg-red-600 text-white hover:bg-red-700"
+                              : "bg-white text-red-600 border border-red-300 hover:bg-red-50"
+                          }`}
+                          onClick={() => {
+                            const current = Boolean(
+                              form.getValues(`extra.calculationTables.${tableIdx}.accumulateRisk` as const) as any
+                            );
+                            form.setValue(
+                              `extra.calculationTables.${tableIdx}.accumulateRisk` as const,
+                              (!current) as any
+                            );
+                          }}
+                        >
+                          Accumulate Risk:{" "}
+                          {form.watch(`extra.calculationTables.${tableIdx}.accumulateRisk` as const) ? "Yes" : "No"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={addRow}
+                          className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700"
+                        >
+                          Add Row
+                        </button>
+                      </div>
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs">
@@ -529,11 +767,47 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
                           ) : (
                             tableRows.map((row: any, rowIdx: number) => {
                               const rowKey = `${tableIdx}-${rowIdx}`;
-                              const vatIncl = form.watch(`extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.sumInsuredVATIncl`) || 0;
-                              const premiumVATIncl = form.watch(`extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.premiumVATIncl`) || 0;
-                      const vatExcl = vatIncl / 1.15; // Calculate VAT exclusive (15% VAT)
-                      const premiumVATExcl = premiumVATIncl / 1.15;
-                      const rate = vatExcl > 0 ? (premiumVATExcl / vatExcl) * 100 : 0;
+                              const vatInclRaw = form.watch(
+                                `extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.sumInsuredVATIncl`
+                              );
+                              const premiumInclRaw = form.watch(
+                                `extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.premiumVATIncl`
+                              );
+
+                              const vatIncl =
+                                typeof vatInclRaw === "number"
+                                  ? vatInclRaw
+                                  : parseNumberWithSpaces(String(vatInclRaw ?? "")) ?? 0;
+                              const premiumVATIncl =
+                                typeof premiumInclRaw === "number"
+                                  ? premiumInclRaw
+                                  : parseNumberWithSpaces(String(premiumInclRaw ?? "")) ?? 0;
+
+                              const vatExcl = vatIncl / 1.15; // Calculate VAT exclusive (15% VAT)
+                              const premiumVATExclComputed = premiumVATIncl / 1.15;
+                              const rateComputed = vatExcl > 0 ? (premiumVATExclComputed / vatExcl) * 100 : 0;
+
+                              // Prefer stored values (set via setValue) to avoid blank display
+                              const storedPremiumExclRaw = form.watch(
+                                `extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.premiumVATExcl`
+                              );
+                              const storedRateRaw = form.watch(
+                                `extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.rate`
+                              );
+
+                              const premiumVATExcl =
+                                typeof storedPremiumExclRaw === "number"
+                                  ? storedPremiumExclRaw
+                                  : typeof storedPremiumExclRaw === "string"
+                                  ? parseNumberWithSpaces(storedPremiumExclRaw) ?? premiumVATExclComputed
+                                  : premiumVATExclComputed;
+
+                              const rate =
+                                typeof storedRateRaw === "number"
+                                  ? storedRateRaw
+                                  : typeof storedRateRaw === "string"
+                                  ? parseNumberWithSpaces(storedRateRaw) ?? rateComputed
+                                  : rateComputed;
 
                               return (
                                 <tr key={rowKey} className={`border-b ${rowIdx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
@@ -717,44 +991,144 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
                                     )}
                                   </td>
                                   <td className="p-2">
-                                    <input
-                                      type="number"
-                                      step="0.01"
-                                      className="w-32 rounded border px-2 py-1 text-right"
-                                      placeholder="0.00"
-                                      {...form.register(`extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.sumInsuredVATIncl` as const, {
-                                        valueAsNumber: true,
-                                      })}
-                                      onChange={(e) => {
-                                        const val = parseFloat(e.target.value) || 0;
-                                        form.setValue(`extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.sumInsuredVATIncl` as const, val);
-                                        const newVatExcl = val / 1.15;
-                                        const newPremiumVATExcl = (form.getValues(`extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.premiumVATIncl` as const) || 0) / 1.15;
-                                        const newRate = newVatExcl > 0 ? (newPremiumVATExcl / newVatExcl) * 100 : 0;
-                                        form.setValue(`extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.sumInsuredVATExcl` as const, Number(newVatExcl.toFixed(2)));
-                                        form.setValue(`extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.rate` as const, Number(newRate.toFixed(3)));
-                                      }}
-                                    />
+                                    {(() => {
+                                      const fieldPath =
+                                        `extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.sumInsuredVATIncl` as const;
+                                      const reg = form.register(fieldPath);
+                                      const current = form.watch(fieldPath) || 0;
+                                      const display =
+                                        sumInsuredVatInclDisplay[rowKey] ??
+                                        (current ? formatThousandsSpaces(current) : "");
+
+                                      return (
+                                        <input
+                                          type="text"
+                                          inputMode="numeric"
+                                          className="w-32 rounded border px-2 py-1 text-right"
+                                          placeholder="0"
+                                          name={reg.name}
+                                          ref={reg.ref}
+                                          value={display}
+                                          onFocus={(e) => e.currentTarget.select()}
+                                          onChange={(e) => {
+                                            const raw = e.target.value;
+                                            setSumInsuredVatInclDisplay((prev) => ({ ...prev, [rowKey]: raw }));
+
+                                            const parsed = parseNumberWithSpaces(raw);
+                                            const val = parsed ?? 0;
+                                            form.setValue(fieldPath, val as any, {
+                                              shouldDirty: true,
+                                              shouldTouch: true,
+                                              shouldValidate: false,
+                                            });
+                                            const newVatExcl = val / 1.15;
+                                            const newPremiumVATExcl =
+                                              (form.getValues(
+                                                `extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.premiumVATIncl` as const
+                                              ) || 0) / 1.15;
+                                            const newRate = newVatExcl > 0 ? (newPremiumVATExcl / newVatExcl) * 100 : 0;
+                                            form.setValue(
+                                              `extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.sumInsuredVATExcl` as const,
+                                              Number(newVatExcl.toFixed(2)) as any
+                                            );
+                                            form.setValue(
+                                              `extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.rate` as const,
+                                              Number(newRate.toFixed(3)) as any
+                                            );
+
+                                            if (val > 200000000 && !facPromptShownForRow[rowKey]) {
+                                              const riskAddress =
+                                                (form.getValues(`extra.calculationTables.${tableIdx}.location` as const) as any) ||
+                                                "";
+                                              const insuredName =
+                                                (form.getValues(`extra.calculationTables.${tableIdx}.insuredNameCalc` as const) as any) ||
+                                                "";
+                                              const section = form.getValues(
+                                                `extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.section` as const
+                                              ) as any;
+                                              const subSection = form.getValues(
+                                                `extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.subSection` as const
+                                              ) as any;
+                                              const sectionLabel = [section, subSection].filter(Boolean).join(" - ");
+
+                                              setFacPromptShownForRow((prev) => ({ ...prev, [rowKey]: true }));
+                                              setFacCoverPrompt({
+                                                riskAddress: String(riskAddress || ""),
+                                                insuredName: String(insuredName || ""),
+                                                sectionLabel: sectionLabel || undefined,
+                                                totalSumInsured: val,
+                                              });
+                                            }
+                                          }}
+                                          onBlur={(e) => {
+                                            reg.onBlur(e);
+                                            const latest = form.getValues(fieldPath) || 0;
+                                            setSumInsuredVatInclDisplay((prev) => ({
+                                              ...prev,
+                                              [rowKey]: latest ? formatThousandsSpaces(latest) : "",
+                                            }));
+                                          }}
+                                        />
+                                      );
+                                    })()}
                                   </td>
                                   <td className="p-2">
-                                    <input
-                                      type="number"
-                                      step="0.01"
-                                      className="w-32 rounded border px-2 py-1 text-right"
-                                      placeholder="0.00"
-                                      {...form.register(`extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.premiumVATIncl` as const, {
-                                        valueAsNumber: true,
-                                      })}
-                                      onChange={(e) => {
-                                        const val = parseFloat(e.target.value) || 0;
-                                        form.setValue(`extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.premiumVATIncl` as const, val);
-                                        const newPremiumVATExcl = val / 1.15;
-                                        const newVatExcl = (form.getValues(`extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.sumInsuredVATIncl` as const) || 0) / 1.15;
-                                        const newRate = newVatExcl > 0 ? (newPremiumVATExcl / newVatExcl) * 100 : 0;
-                                        form.setValue(`extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.premiumVATExcl` as const, Number(newPremiumVATExcl.toFixed(2)));
-                                        form.setValue(`extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.rate` as const, Number(newRate.toFixed(3)));
-                                      }}
-                                    />
+                                    {(() => {
+                                      const fieldPath =
+                                        `extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.premiumVATIncl` as const;
+                                      const reg = form.register(fieldPath);
+                                      const current = form.watch(fieldPath) || 0;
+                                      const display =
+                                        premiumVatInclDisplay[rowKey] ??
+                                        (current ? formatMoneyZA(current) : "");
+
+                                      return (
+                                        <input
+                                          type="text"
+                                          inputMode="decimal"
+                                          className="w-32 rounded border px-2 py-1 text-right"
+                                          placeholder="0,00"
+                                          name={reg.name}
+                                          ref={reg.ref}
+                                          value={display}
+                                          onFocus={(e) => e.currentTarget.select()}
+                                          onChange={(e) => {
+                                            const raw = e.target.value;
+                                            setPremiumVatInclDisplay((prev) => ({ ...prev, [rowKey]: raw }));
+
+                                            const parsed = parseNumberWithSpaces(raw);
+                                            const val = parsed ?? 0;
+                                            form.setValue(fieldPath, val as any, {
+                                              shouldDirty: true,
+                                              shouldTouch: true,
+                                              shouldValidate: false,
+                                            });
+                                            const newPremiumVATExcl = val / 1.15;
+                                            const newVatExcl =
+                                              (form.getValues(
+                                                `extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.sumInsuredVATIncl` as const
+                                              ) || 0) / 1.15;
+                                            const newRate = newVatExcl > 0 ? (newPremiumVATExcl / newVatExcl) * 100 : 0;
+                                            form.setValue(
+                                              `extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.premiumVATExcl` as const,
+                                              Number(newPremiumVATExcl.toFixed(2)) as any
+                                            );
+                                            form.setValue(
+                                              `extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.rate` as const,
+                                              Number(newRate.toFixed(3)) as any
+                                            );
+                                          }}
+                                          onBlur={(e) => {
+                                            reg.onBlur(e);
+                                            const latest = form.getValues(fieldPath) || 0;
+                                            setPremiumVatInclDisplay((prev) => ({
+                                              ...prev,
+                                              [rowKey]: latest ? formatMoneyZA(latest) : "",
+                                            }));
+                                          }}
+                                        />
+                                      );
+                                    })()}
                                   </td>
                                   <td className="p-2">
                                     <input
@@ -823,17 +1197,64 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
                       <>
                         {summaryData.map((item, idx) => (
                           <tr key={idx} className="transition-all duration-200 hover:bg-primary/5">
-                            <td className="px-4 py-3 align-top">{item.riskAddress || "-"}</td>
+                            <td className="px-4 py-3 align-top">
+                              {(item as any).accumulatedBreakdown ? (
+                                <div className="space-y-2">
+                                  <div className="text-xs font-semibold text-foreground">Accumulated Risk</div>
+                                  <div className="space-y-1 text-xs text-muted-foreground">
+                                    {(item as any).accumulatedBreakdown.map((b: any, i: number) => (
+                                      <div key={i} className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                          <div className="truncate text-foreground">{b.riskAddress}</div>
+                                          <div className="truncate text-[11px]">{b.sectionLabel}</div>
+                                          <div className="truncate">{b.insuredName}</div>
+                                        </div>
+                                        <div className="shrink-0 text-right tabular-nums">
+                                          <div>{formatCurrency(b.totalSumInsured)}</div>
+                                          <div className="text-[11px]">{formatCurrency(b.totalPremium)}</div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="space-y-0.5">
+                                  <div>{item.riskAddress || "-"}</div>
+                                  {(item as any).sectionLabel ? (
+                                    <div className="text-[11px] text-muted-foreground">{(item as any).sectionLabel}</div>
+                                  ) : null}
+                                </div>
+                              )}
+                            </td>
                             <td className="px-4 py-3 align-top font-medium">{item.insuredName || "-"}</td>
                             <td className="px-4 py-3 align-top text-right">{formatCurrency(item.totalSumInsured)}</td>
                             <td className="px-4 py-3 align-top text-right">{formatCurrency(item.totalPremium)}</td>
                             <td className="px-4 py-3 align-top">{item.internalApprovalProcess}</td>
-                            <td className="px-4 py-3 align-top">{item.externalFacRequired}</td>
+                            <td className="px-4 py-3 align-top">
+                              {item.externalFacRequired === "Request Fac Cover" ? (
+                                <button
+                                  type="button"
+                                  className="rounded bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-700"
+                                  onClick={() =>
+                                    setFacCoverPrompt({
+                                      riskAddress: String(item.riskAddress || ""),
+                                      insuredName: String(item.insuredName || ""),
+                                      sectionLabel: (item as any).sectionLabel || undefined,
+                                      totalSumInsured: Number(item.totalSumInsured || 0),
+                                    })
+                                  }
+                                >
+                                  Request Fac Cover
+                                </button>
+                              ) : (
+                                item.externalFacRequired
+                              )}
+                            </td>
                           </tr>
                         ))}
                         {/* Totals Row */}
                         <tr className="border-t-2 border-border bg-muted/30 font-semibold">
-                          <td className="px-4 py-3 align-top"></td>
+                          <td className="px-4 py-3 align-top text-red-600">Policy Total</td>
                           <td className="px-4 py-3 align-top"></td>
                           <td className="px-4 py-3 align-top text-right">{formatCurrency(totals.totalSumInsured)}</td>
                           <td className="px-4 py-3 align-top text-right">{formatCurrency(totals.totalPremium)}</td>
@@ -857,173 +1278,6 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
       )}
 
       {step === 3 && (
-        <div className="space-y-6">
-          <div className="card-modern p-6">
-            <h3 className="mb-4 text-sm font-semibold">Reinsurance Placements and Shortfalls</h3>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between rounded border p-2">
-                  <span className="text-sm">Excluding 15% VAT</span>
-                  <div className="flex gap-2">
-                    <input
-                      type="number"
-                      className="w-20 rounded border px-2 py-1 text-right text-sm"
-                      placeholder="%"
-                      {...form.register("extra.excludingVATPercent", { valueAsNumber: true })}
-                    />
-                    <input
-                      type="number"
-                      className="w-32 rounded border px-2 py-1 text-right text-sm"
-                      placeholder="R"
-                      {...form.register("extra.excludingVATAmount", { valueAsNumber: true })}
-                    />
-                  </div>
-                </div>
-                <div className="flex items-center justify-between rounded border p-2">
-                  <span className="text-sm">HIC Share + PML</span>
-                  <div className="flex gap-2">
-                    <input
-                      type="number"
-                      className="w-20 rounded border px-2 py-1 text-right text-sm"
-                      placeholder="%"
-                      {...form.register("extra.hicSharePercent", { valueAsNumber: true })}
-                    />
-                    <input
-                      type="number"
-                      className="w-32 rounded border px-2 py-1 text-right text-sm"
-                      placeholder="R"
-                      {...form.register("extra.hicShareAmount", { valueAsNumber: true })}
-                    />
-                  </div>
-                </div>
-                <div className="flex items-center justify-between rounded border border-red-300 bg-red-50 p-2">
-                  <span className="text-sm font-medium">Shortfall after HIC Share</span>
-                  <span className="text-sm font-semibold text-red-700">R {calculations.shortfallHIC.toLocaleString()}</span>
-                </div>
-
-                <div className="mt-4 space-y-2">
-                  <div className="text-sm font-semibold">Proportional FAC placements</div>
-                  <div className="space-y-2">
-                    {proportionalFAC.fields.map((field, idx) => (
-                      <div key={field.id} className="flex items-center gap-2">
-                        <span className="w-8 text-xs">{idx + 1}.</span>
-                        <input
-                          type="number"
-                          className="w-20 rounded border px-2 py-1 text-right text-xs"
-                          placeholder="%"
-                          {...form.register(`extra.proportionalFAC.${idx}.percent` as const, { valueAsNumber: true })}
-                        />
-                        <input
-                          type="number"
-                          className="flex-1 rounded border px-2 py-1 text-right text-xs"
-                          placeholder="R"
-                          {...form.register(`extra.proportionalFAC.${idx}.amount` as const, { valueAsNumber: true })}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex items-center justify-between rounded border p-2 text-sm">
-                    <span>Total Proportional FAC secured</span>
-                    <span>R {calculations.proportionalTotal.toLocaleString()}</span>
-                  </div>
-                  <div className="flex items-center justify-between rounded border border-red-300 bg-red-50 p-2 text-sm font-medium">
-                    <span>Shortfall after Proportional Placements</span>
-                    <span className="text-red-700">R {calculations.shortfallProportional.toLocaleString()}</span>
-                  </div>
-                </div>
-
-                <div className="mt-4 space-y-2">
-                  <div className="rounded border border-red-300 bg-red-50 p-2 text-xs text-red-700">
-                    NOTE: If Proportional Facultative support has dried up approach XOL Reinsurers
-                  </div>
-                  <div className="text-sm font-semibold">Excess of Loss FAC placements</div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead className="border-b bg-muted/30">
-                        <tr>
-                          <th className="p-1 text-left">Reinsurer</th>
-                          <th className="p-1 text-right">% of XOL Layer</th>
-                          <th className="p-1 text-right">Exposure on XOL Layer</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {xolFAC.fields.map((field, idx) => (
-                          <tr key={field.id} className="border-b">
-                            <td className="p-1">{field.reinsurer}</td>
-                            <td className="p-1">
-                              <input
-                                type="number"
-                                className="w-full rounded border px-1 py-0.5 text-right"
-                                placeholder="%"
-                                {...form.register(`extra.xolFAC.${idx}.percentOfXOLLayer` as const, { valueAsNumber: true })}
-                              />
-                            </td>
-                            <td className="p-1">
-                              <input
-                                type="number"
-                                className="w-full rounded border px-1 py-0.5 text-right"
-                                placeholder="R"
-                                {...form.register(`extra.xolFAC.${idx}.exposureOnXOLLayer` as const, { valueAsNumber: true })}
-                              />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="flex items-center justify-between rounded border p-2 text-sm">
-                    <span>Total XOL FAC secured</span>
-                    <span>R {calculations.xolTotal.toLocaleString()}</span>
-                  </div>
-                  <div className="flex items-center justify-between rounded border border-red-300 bg-red-50 p-2 text-sm font-medium">
-                    <span>Shortfall after XOL Placements</span>
-                    <span className="text-red-700">R {calculations.shortfallXOL.toLocaleString()}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="mb-1 block text-sm font-medium">Reinsurer&apos;s Conditions for support</label>
-                  <textarea
-                    className="h-32 w-full rounded border px-3 py-2 text-sm"
-                    {...form.register("extra.reinsurersConditions")}
-                    placeholder="Enter conditions..."
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium">XOL Premiums Quoted (Vat Excl. FOC)</label>
-                  <input
-                    type="number"
-                    className="w-full rounded border px-3 py-2 text-sm"
-                    placeholder="R"
-                    {...form.register("extra.xolPremiumsQuoted", { valueAsNumber: true })}
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium">
-                    What is the Total Premium (Vat & Comm Incl.) of the items / sections we are obtaining Facultative Reinsurance support for?
-                  </label>
-                  <input
-                    type="number"
-                    className="w-full rounded border px-3 py-2 text-sm"
-                    placeholder="R"
-                    {...form.register("extra.totalPremium", { valueAsNumber: true })}
-                  />
-                  <p className="mt-1 text-xs text-muted-foreground">This is required for the Pareto Model</p>
-                </div>
-                <div className="mt-4 rounded border border-blue-200 bg-blue-50 p-3 text-xs">
-                  Approach XOL Reinsurers for{" "}
-                  <span className="font-semibold">R{calculations.shortfallXOL.toLocaleString()}</span> in Excess of{" "}
-                  <span className="font-semibold">R{(form.watch("extra.hicShareAmount") || 0).toLocaleString()}</span> in respect of HIC&apos;s 100% share of the Risk
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {step === 4 && (
         <div className="space-y-6">
           {/* Document Upload Section */}
           <div className="card-modern p-6">

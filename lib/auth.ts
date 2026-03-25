@@ -3,7 +3,13 @@ import Credentials from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
 import { compare } from "bcryptjs";
 
+// Required in production. Dev fallback so local runs without .env
+const secret =
+  process.env.NEXTAUTH_SECRET ||
+  (process.env.NODE_ENV === "development" ? "dev-secret-change-in-production" : undefined);
+
 export const authOptions: NextAuthOptions = {
+  secret,
   session: { strategy: "jwt" },
   debug: process.env.NODE_ENV !== "production",
   providers: [
