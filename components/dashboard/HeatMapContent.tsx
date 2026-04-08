@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 
 type View = "regions" | "cities" | "categories";
 type Metric = "riskCount" | "boundPremiumM" | "lossRatio";
@@ -40,6 +40,18 @@ type CategoryRow = {
   riskCount: number;
   boundPremiumM: number;
   lossRatio: number;
+};
+
+const REGION_DOT_POSITIONS: Record<string, { xPct: number; yPct: number }> = {
+  Gauteng: { xPct: 67.5, yPct: 47 },
+  "Western Cape": { xPct: 48, yPct: 79 },
+  "KwaZulu-Natal": { xPct: 73.5, yPct: 67 },
+  "Eastern Cape": { xPct: 60, yPct: 79 },
+  "Free State": { xPct: 60.5, yPct: 59.5 },
+  Mpumalanga: { xPct: 76.5, yPct: 52.5 },
+  Limpopo: { xPct: 74.5, yPct: 36.5 },
+  "North West": { xPct: 57.5, yPct: 46.5 },
+  "Northern Cape": { xPct: 35.5, yPct: 56 },
 };
 
 const BASE_REGION_DATA: RegionRow[] = [
@@ -293,6 +305,18 @@ export default function HeatMapContent() {
   const [hoveredRegion, setHoveredRegion] = useState<string | null>(null);
   const [selectedCity, setSelectedCity] = useState<CityRow | null>(null);
   const [hoveredCity, setHoveredCity] = useState<string | null>(null);
+  const [focusedCity, setFocusedCity] = useState<string | null>(null);
+  const cityRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  useEffect(() => {
+    if (selectedView !== "cities" || !focusedCity) return;
+    const el = cityRowRefs.current[focusedCity];
+    if (!el) return;
+    // Wait a tick for layout to settle after view switch.
+    requestAnimationFrame(() => {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, [focusedCity, selectedView]);
 
   const timeFactor: Record<TimeRange, number> = {
     "30d": 0.28,
@@ -502,266 +526,153 @@ export default function HeatMapContent() {
       {selectedView === "regions" && (
         <div className="rounded-lg border bg-card p-6 shadow-sm">
           <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-base font-semibold">Risk Heat Map (Impact × Probability)</h3>
-            <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground">
-              <span>Low</span>
-              <div
-                className="h-2 w-40 rounded-full border"
-                style={{
-                  background:
-                    "linear-gradient(90deg, #10B981 0%, #A3E635 22%, #FACC15 52%, #FB923C 78%, #EF4444 100%)",
-                }}
-                aria-hidden="true"
-              />
-              <span>High</span>
+            <div>
+              <h3 className="text-base font-semibold">Heat Map</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Click a region dot to view details.
+              </p>
             </div>
           </div>
 
-          {/* Impact × Probability matrix */}
           <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
-            <div className="relative overflow-hidden rounded-2xl border bg-background p-4">
+            <div className="relative overflow-hidden rounded-2xl border bg-background">
               <div
-                className="absolute inset-0"
+                className="relative aspect-[16/8] w-full"
                 style={{
-                  background:
-                    "linear-gradient(90deg, rgba(16,185,129,0.95) 0%, rgba(163,230,53,0.95) 25%, rgba(250,204,21,0.95) 52%, rgba(251,146,60,0.95) 78%, rgba(239,68,68,0.95) 100%)",
-                  filter: "saturate(1.05)",
+                  backgroundImage: "url(/heatmap/heatmap.png)",
+                  backgroundSize: "cover",
+                  backgroundPosition: "center",
                 }}
-                aria-hidden="true"
-              />
-              <div
-                className="pointer-events-none absolute inset-0 opacity-55"
-                style={{
-                  background:
-                    "radial-gradient(900px 380px at 22% 72%, rgba(255,255,255,0.16) 0%, transparent 60%), radial-gradient(760px 360px at 78% 30%, rgba(0,0,0,0.10) 0%, transparent 55%)",
-                }}
-                aria-hidden="true"
-              />
+              >
+                {/* subtle glass overlay like the reference */}
+                <div
+                  className="pointer-events-none absolute inset-0"
+                  style={{
+                    background:
+                      "radial-gradient(900px 420px at 25% 25%, rgba(255,255,255,0.10) 0%, transparent 62%), linear-gradient(0deg, rgba(0,0,0,0.05), rgba(0,0,0,0.05))",
+                  }}
+                  aria-hidden="true"
+                />
 
-              {/* grid lines */}
-              <div className="pointer-events-none absolute inset-4 rounded-xl bg-[linear-gradient(to_right,rgba(255,255,255,0.28)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.28)_1px,transparent_1px)] [background-size:20%_20%]" />
+                {/* Region dots */}
+                {sortedRegions.map((r) => {
+                  const pos = REGION_DOT_POSITIONS[r.region] ?? { xPct: 65, yPct: 50 };
+                  const score = regionScore01(r.region);
+                  const color = getHeatColor(score, 0.95);
+                  const selected = selectedRegion === r.region;
+                  const hovered = hoveredRegion === r.region;
+                  const size = 16 + Math.round(score * 12); // 16..28 (more visible)
+                  const halo = size + 16;
 
-              <div className="relative z-[2] aspect-[16/8] rounded-xl">
-                <svg viewBox="0 0 1000 520" className="h-full w-full">
-                  <defs>
-                    <filter id="cityGlow" x="-50%" y="-50%" width="200%" height="200%">
-                      <feGaussianBlur stdDeviation="6" result="blur" />
-                      <feColorMatrix
-                        in="blur"
-                        type="matrix"
-                        values="
-                          1 0 0 0 0
-                          0 1 0 0 0
-                          0 0 1 0 0
-                          0 0 0 0.55 0
-                        "
-                        result="glow"
-                      />
-                      <feMerge>
-                        <feMergeNode in="glow" />
-                        <feMergeNode in="SourceGraphic" />
-                      </feMerge>
-                    </filter>
-                    <filter id="cityShadow" x="-50%" y="-50%" width="200%" height="200%">
-                      <feDropShadow dx="0" dy="2" stdDeviation="2.5" floodColor="rgba(0,0,0,0.35)" />
-                    </filter>
-                  </defs>
-                  {/* Axis labels */}
-                  <text x="18" y="260" fill="rgba(0,0,0,0.55)" fontSize="16" fontWeight="700" transform="rotate(-90 18 260)">
-                    IMPACT
-                  </text>
-                  <text x="500" y="508" fill="rgba(0,0,0,0.55)" fontSize="16" fontWeight="700" textAnchor="middle">
-                    PROBABILITY
-                  </text>
-
-                  {(() => {
-                    const points = cityData.map((c) => {
-                      const p = clamp01(c.lossRatio); // probability proxy
-                      const i = clamp01(c.severityIndex); // impact proxy
-                      return {
-                        city: c,
-                        ax: 80 + p * 860,
-                        ay: 440 - i * 360,
-                        x: 80 + p * 860,
-                        y: 440 - i * 360,
-                      };
-                    });
-
-                    // Spread points while staying aligned to true Impact/Probability anchors.
-                    // Repel reduces overlap; spring keeps points near anchor.
-                    const minDist = 34; // dot spacing
-                    const maxIter = 22;
-                    const springK = 0.18; // pull-back to anchor strength
-                    const clamped = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
-
-                    const arranged = points.map((p) => ({ ...p }));
-                    for (let iter = 0; iter < maxIter; iter++) {
-                      let moved = false;
-                      for (let a = 0; a < arranged.length; a++) {
-                        for (let b = a + 1; b < arranged.length; b++) {
-                          const dx = arranged[b].x - arranged[a].x;
-                          const dy = arranged[b].y - arranged[a].y;
-                          const d = Math.hypot(dx, dy) || 0.001;
-                          if (d >= minDist) continue;
-
-                          // Push away from each other
-                          const push = (minDist - d) / 2;
-                          const ux = dx / d;
-                          const uy = dy / d;
-
-                          arranged[a].x -= ux * push;
-                          arranged[a].y -= uy * push;
-                          arranged[b].x += ux * push;
-                          arranged[b].y += uy * push;
-                          moved = true;
-                        }
-                      }
-
-                      // Spring back to anchors (keeps alignment meaningful)
-                      for (const p of arranged) {
-                        p.x += (p.ax - p.x) * springK;
-                        p.y += (p.ay - p.y) * springK;
-                      }
-
-                      // Keep within chart bounds (padding for labels)
-                      for (const p of arranged) {
-                        p.x = clamped(p.x, 70, 930);
-                        p.y = clamped(p.y, 80, 460);
-                      }
-
-                      if (!moved) break;
-                    }
-
-                    return arranged.map((pt) => (
-                      <g
-                        key={pt.city.city}
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`Open ${pt.city.city} details`}
-                        className="cursor-pointer"
-                        onClick={() => setSelectedCity(pt.city)}
-                        onMouseEnter={() => setHoveredCity(pt.city.city)}
-                        onMouseLeave={() => setHoveredCity(null)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") setSelectedCity(pt.city);
-                        }}
-                      >
-                        {/* Outer clickable target */}
-                        <circle
-                          cx={pt.x}
-                          cy={pt.y}
-                          r="16"
-                          fill="transparent"
-                        />
-
-                        {/* Hover ring */}
-                        <circle
-                          cx={pt.x}
-                          cy={pt.y}
-                          r={hoveredCity === pt.city.city || selectedCity?.city === pt.city.city ? 15 : 13}
-                          fill="rgba(255,255,255,0.16)"
-                          stroke="rgba(255,255,255,0.55)"
-                          strokeWidth="1.5"
-                          filter={hoveredCity === pt.city.city || selectedCity?.city === pt.city.city ? "url(#cityGlow)" : "url(#cityShadow)"}
-                          style={{ transition: "all 140ms ease" }}
-                        />
-
-                        {/* Inner dot */}
-                        <circle
-                          cx={pt.x}
-                          cy={pt.y}
-                          r={hoveredCity === pt.city.city || selectedCity?.city === pt.city.city ? 7 : 6}
-                          fill="rgba(255,255,255,0.96)"
-                          style={{ transition: "all 140ms ease" }}
-                        />
-
-                        {/* Label */}
-                        {hoveredCity === pt.city.city || selectedCity?.city === pt.city.city ? (
-                          <text
-                            x={pt.x + 18}
-                            y={pt.y + 5}
-                            fontSize="13"
-                            fill="rgba(255,255,255,0.96)"
-                            fontWeight="800"
-                            style={{
-                              paintOrder: "stroke",
-                              stroke: "rgba(0,0,0,0.28)",
-                              strokeWidth: 3,
-                            }}
-                          >
-                            {pt.city.city}
-                          </text>
-                        ) : null}
-                      </g>
-                    ));
-                  })()}
-                </svg>
-              </div>
-
-              {selectedCity && (
-                <div className="absolute left-6 top-6 z-[5] w-[320px] rounded-2xl border border-white/20 bg-black/60 p-4 text-white shadow-xl backdrop-blur">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold">{selectedCity.city}</div>
-                      <div className="mt-0.5 text-xs text-white/80">{selectedCity.region}</div>
-                    </div>
+                  return (
                     <button
+                      key={r.region}
                       type="button"
-                      className="rounded-lg border border-white/20 bg-white/10 px-2 py-1 text-xs font-semibold hover:bg-white/15"
-                      onClick={() => setSelectedCity(null)}
-                    >
-                      Close
-                    </button>
-                  </div>
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                    <div className="rounded-lg border border-white/15 bg-white/10 p-2">
-                      <div className="text-white/70">Active risks</div>
-                      <div className="mt-0.5 text-sm font-semibold">{selectedCity.riskCount.toLocaleString()}</div>
-                    </div>
-                    <div className="rounded-lg border border-white/15 bg-white/10 p-2">
-                      <div className="text-white/70">Bound premium</div>
-                      <div className="mt-0.5 text-sm font-semibold">{formatCurrencyM(selectedCity.boundPremiumM)}</div>
-                    </div>
-                    <div className="rounded-lg border border-white/15 bg-white/10 p-2">
-                      <div className="text-white/70">Loss ratio</div>
-                      <div className="mt-0.5 text-sm font-semibold">{formatPct01(selectedCity.lossRatio)}</div>
-                    </div>
-                    <div className="rounded-lg border border-white/15 bg-white/10 p-2">
-                      <div className="text-white/70">Impact index</div>
-                      <div className="mt-0.5 text-sm font-semibold">{Math.round(selectedCity.severityIndex * 100)}%</div>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex justify-end">
-                    <button
-                      type="button"
-                      className="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-black hover:bg-white/90"
-                      onClick={() => {
-                        setSelectedView("cities");
-                        setSelectedRegion(selectedCity.region);
+                      className="group absolute"
+                      style={{
+                        left: `${pos.xPct}%`,
+                        top: `${pos.yPct}%`,
+                        transform: "translate(-50%, -50%)",
                       }}
+                      aria-label={`Select ${r.region}`}
+                      onClick={() => setSelectedRegion(r.region)}
+                      onMouseEnter={() => setHoveredRegion(r.region)}
+                      onMouseLeave={() => setHoveredRegion(null)}
                     >
-                      View in Cities
+                      {/* halo/glow to increase contrast on busy map tiles */}
+                      <span
+                        className="pointer-events-none absolute left-1/2 top-1/2 block -translate-x-1/2 -translate-y-1/2 rounded-full"
+                        style={{
+                          width: `${halo}px`,
+                          height: `${halo}px`,
+                          background:
+                            selected || hovered
+                              ? "radial-gradient(circle, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.14) 42%, rgba(255,255,255,0) 70%)"
+                              : "radial-gradient(circle, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0.10) 40%, rgba(255,255,255,0) 68%)",
+                          filter: "blur(0.2px)",
+                        }}
+                        aria-hidden="true"
+                      />
+
+                      <span
+                        className="relative block rounded-full border border-white/90 shadow-[0_18px_34px_rgba(0,0,0,0.35)]"
+                        style={{
+                          width: `${size}px`,
+                          height: `${size}px`,
+                          backgroundColor: color,
+                          outline: selected
+                            ? "4px solid rgba(255,255,255,0.95)"
+                            : hovered
+                              ? "3px solid rgba(255,255,255,0.92)"
+                              : "2px solid rgba(0,0,0,0.45)",
+                          outlineOffset: 2,
+                          transition: "transform 120ms ease, outline 120ms ease, box-shadow 120ms ease",
+                          transform: hovered || selected ? "scale(1.08)" : "scale(1)",
+                          boxShadow:
+                            hovered || selected
+                              ? "0 22px 40px rgba(0,0,0,0.42)"
+                              : "0 18px 34px rgba(0,0,0,0.32)",
+                        }}
+                      />
+                      {/* Tooltip */}
+                      <span className="pointer-events-none absolute left-1/2 top-full z-10 mt-2 hidden -translate-x-1/2 whitespace-nowrap rounded-lg border bg-background/95 px-2 py-1 text-[11px] font-semibold text-foreground shadow-sm backdrop-blur group-hover:block">
+                        {r.region}
+                      </span>
                     </button>
+                  );
+                })}
+
+                {selectedRegionData && (
+                  <div className="absolute left-4 top-4 z-[5] w-[320px] rounded-2xl border border-white/20 bg-black/60 p-4 text-white shadow-xl backdrop-blur">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold">{selectedRegionData.region}</div>
+                        <div className="mt-0.5 text-xs text-white/80">Risk details</div>
+                      </div>
+                      <button
+                        type="button"
+                        className="rounded-lg border border-white/20 bg-white/10 px-2 py-1 text-xs font-semibold hover:bg-white/15"
+                        onClick={() => setSelectedRegion(null)}
+                      >
+                        Close
+                      </button>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded-lg border border-white/15 bg-white/10 p-2">
+                        <div className="text-white/70">Active risks</div>
+                        <div className="mt-0.5 text-sm font-semibold">{selectedRegionData.riskCount.toLocaleString()}</div>
+                      </div>
+                      <div className="rounded-lg border border-white/15 bg-white/10 p-2">
+                        <div className="text-white/70">Bound premium</div>
+                        <div className="mt-0.5 text-sm font-semibold">{formatCurrencyM(selectedRegionData.boundPremiumM)}</div>
+                      </div>
+                      <div className="rounded-lg border border-white/15 bg-white/10 p-2">
+                        <div className="text-white/70">Loss ratio</div>
+                        <div className="mt-0.5 text-sm font-semibold">{formatPct01(selectedRegionData.lossRatio)}</div>
+                      </div>
+                      <div className="rounded-lg border border-white/15 bg-white/10 p-2">
+                        <div className="text-white/70">Avg TIV</div>
+                        <div className="mt-0.5 text-sm font-semibold">{formatCurrencyM(selectedRegionData.avgTivM)}</div>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
-            {/* Legend / Explanations */}
+            {/* Legend */}
             <div className="space-y-3">
               {[
-                { c: "#10B981", t: "Low risk", d: "Minimal expected loss. Monitor and maintain controls." },
-                { c: "#A3E635", t: "Guarded", d: "Stable exposure. Review quarterly and validate assumptions." },
-                { c: "#FACC15", t: "Elevated", d: "Action recommended. Improve mitigations and pricing." },
-                { c: "#FB923C", t: "High", d: "Requires approval. Tighten terms and reduce volatility." },
-                { c: "#EF4444", t: "Critical", d: "Immediate attention. Consider FAC, exclusions, or decline." },
+                { t: "Low", v: 0.1 },
+                { t: "Guarded", v: 0.3 },
+                { t: "Elevated", v: 0.5 },
+                { t: "High", v: 0.7 },
+                { t: "Critical", v: 0.9 },
               ].map((x) => (
-                <div key={x.t} className="flex gap-3 rounded-xl border bg-card p-4">
-                  <div className="mt-0.5 h-7 w-7 rounded-lg border" style={{ backgroundColor: x.c }} />
-                  <div>
-                    <div className="text-sm font-semibold">{x.t}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">{x.d}</div>
-                  </div>
+                <div key={x.t} className="flex items-center gap-3 rounded-xl border bg-card p-4">
+                  <div className="h-6 w-6 rounded border" style={{ backgroundColor: getHeatColor(x.v, 0.95) }} aria-hidden="true" />
+                  <div className="text-sm font-semibold">{x.t}</div>
                 </div>
               ))}
             </div>
@@ -833,7 +744,12 @@ export default function HeatMapContent() {
             {sortedCities.map((city) => (
               <div
                 key={city.city}
-                className="flex items-center justify-between rounded-lg border bg-card p-4 hover:shadow-sm transition-shadow"
+                ref={(el) => {
+                  cityRowRefs.current[city.city] = el;
+                }}
+                className={`flex items-center justify-between rounded-lg border bg-card p-4 transition-shadow ${
+                  focusedCity === city.city ? "border-primary bg-primary/5 ring-2 ring-primary shadow-sm" : "hover:shadow-sm"
+                }`}
               >
                 <div className="flex items-center gap-4">
                   <div
@@ -913,78 +829,6 @@ export default function HeatMapContent() {
                 </div>
               </div>
             )})}
-          </div>
-        </div>
-      )}
-
-      {/* Selected Region Details */}
-      {selectedRegionData && (
-        <div className="rounded-lg border bg-card p-6 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-base font-semibold">Risk Details: {selectedRegionData.region}</h3>
-            <button
-              onClick={() => setSelectedRegion(null)}
-              className="text-xs text-muted-foreground hover:text-foreground"
-            >
-              Close
-            </button>
-          </div>
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="space-y-4">
-              <div className="rounded-lg border bg-muted/50 p-4">
-                <div className="text-xs text-muted-foreground">Active risks</div>
-                <div className="mt-1 text-2xl font-semibold">{selectedRegionData.riskCount.toLocaleString()}</div>
-              </div>
-              <div className="rounded-lg border bg-muted/50 p-4">
-                <div className="text-xs text-muted-foreground">Bound premium volume</div>
-                <div className="mt-1 text-2xl font-semibold">{formatCurrencyM(selectedRegionData.boundPremiumM)}</div>
-              </div>
-              <div className="rounded-lg border bg-muted/50 p-4">
-                <div className="text-xs text-muted-foreground">Loss ratio</div>
-                <div className="mt-1 flex items-center gap-2">
-                  <div
-                    className="h-4 w-4 rounded-full border"
-                    style={{ backgroundColor: getHeatColor(regionScore01(selectedRegionData.region), 0.95) }}
-                  />
-                  <span className="text-lg font-semibold">{formatPct01(selectedRegionData.lossRatio)}</span>
-                </div>
-              </div>
-              <div className="rounded-lg border bg-muted/50 p-4">
-                <div className="text-xs text-muted-foreground">Avg total insured value</div>
-                <div className="mt-1 text-2xl font-semibold">{formatCurrencyM(selectedRegionData.avgTivM)}</div>
-              </div>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <h4 className="mb-3 text-sm font-semibold">Top Risk Types</h4>
-                <div className="space-y-2">
-                  {selectedRegionData.topRisks.map((risk, idx) => (
-                    <div key={idx} className="flex items-center justify-between rounded-lg border bg-muted/30 p-3">
-                      <span className="text-sm">{risk}</span>
-                      <div
-                        className="h-2 w-2 rounded-full border"
-                        style={{ backgroundColor: getHeatColor(0.85 - idx * 0.18, 0.95) }}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="rounded-lg border bg-muted/50 p-4">
-                <div className="text-xs text-muted-foreground">Avg premium per risk</div>
-                <div className="mt-1 text-lg font-semibold">
-                  {(() => {
-                    const perRisk = selectedRegionData.riskCount > 0 ? (selectedRegionData.boundPremiumM * 1_000_000) / selectedRegionData.riskCount : 0;
-                    return `R ${Math.round(perRisk).toLocaleString()}`;
-                  })()}
-                </div>
-              </div>
-              <div className="rounded-lg border bg-muted/50 p-4">
-                <div className="text-xs text-muted-foreground">Momentum (7 days)</div>
-                <div className="mt-2">
-                  <TrendBars values={selectedRegionData.trend} />
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       )}
