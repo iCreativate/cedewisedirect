@@ -740,6 +740,43 @@ export default function HeatMapContent() {
             </div>
           </div>
 
+          {selectedCity && (
+            <div className="mb-4 rounded-2xl border bg-muted/20 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold">{selectedCity.city}</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{selectedCity.region}</div>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-lg border bg-background px-2 py-1 text-xs font-semibold hover:bg-muted"
+                  onClick={() => setSelectedCity(null)}
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-lg border bg-background p-2">
+                  <div className="text-muted-foreground">Active risks</div>
+                  <div className="mt-0.5 text-sm font-semibold">{selectedCity.riskCount.toLocaleString()}</div>
+                </div>
+                <div className="rounded-lg border bg-background p-2">
+                  <div className="text-muted-foreground">Bound premium</div>
+                  <div className="mt-0.5 text-sm font-semibold">{formatCurrencyM(selectedCity.boundPremiumM)}</div>
+                </div>
+                <div className="rounded-lg border bg-background p-2">
+                  <div className="text-muted-foreground">Loss ratio</div>
+                  <div className="mt-0.5 text-sm font-semibold">{formatPct01(selectedCity.lossRatio)}</div>
+                </div>
+                <div className="rounded-lg border bg-background p-2">
+                  <div className="text-muted-foreground">Impact index</div>
+                  <div className="mt-0.5 text-sm font-semibold">{Math.round(selectedCity.severityIndex * 100)}%</div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="space-y-3">
             {sortedCities.map((city) => (
               <div
@@ -747,7 +784,14 @@ export default function HeatMapContent() {
                 ref={(el) => {
                   cityRowRefs.current[city.city] = el;
                 }}
-                className={`flex items-center justify-between rounded-lg border bg-card p-4 transition-shadow ${
+                role="button"
+                tabIndex={0}
+                aria-label={`Open ${city.city} details`}
+                onClick={() => setSelectedCity(city)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") setSelectedCity(city);
+                }}
+                className={`flex cursor-pointer items-center justify-between rounded-lg border bg-card p-4 transition-shadow ${
                   focusedCity === city.city ? "border-primary bg-primary/5 ring-2 ring-primary shadow-sm" : "hover:shadow-sm"
                 }`}
               >

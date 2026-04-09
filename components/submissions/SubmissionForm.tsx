@@ -147,6 +147,14 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
     return Number.isFinite(parsed) ? parsed : undefined;
   }
 
+  function coerceNumber(value: unknown): number {
+    if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+    if (typeof value === "string") return parseNumberWithSpaces(value) ?? 0;
+    if (value == null) return 0;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+
   function buildForwardToReinsurerText(type: "PROP" | "NON_PROP") {
     const insuredName = String(form.getValues("extra.insuredName") || "-");
     const policyNo = String(form.getValues("extra.policyNo") || "-");
@@ -388,8 +396,8 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
       const accumulateRisk = Boolean(table.accumulateRisk);
 
       return rows.map((row: any, rowIdx: number) => {
-        const totalSumInsured = Number(row?.sumInsuredVATIncl || 0);
-        const totalPremium = Number(row?.premiumVATIncl || 0);
+        const totalSumInsured = coerceNumber(row?.sumInsuredVATIncl);
+        const totalPremium = coerceNumber(row?.premiumVATIncl);
 
         const internalApprovalProcess =
           totalSumInsured > 200000000
@@ -712,6 +720,19 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
           </div>
           {calculationTables.fields.map((table, tableIdx) => {
             const tableRows = form.watch(`extra.calculationTables.${tableIdx}.calculationRows`) || [];
+
+            const tableTotalSumInsuredVATIncl = tableRows.reduce((sum: number, _row: any, rowIdx: number) => {
+              const v = form.watch(`extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.sumInsuredVATIncl` as const);
+              return sum + coerceNumber(v);
+            }, 0);
+            const tableTotalPremiumVATIncl = tableRows.reduce((sum: number, _row: any, rowIdx: number) => {
+              const v = form.watch(`extra.calculationTables.${tableIdx}.calculationRows.${rowIdx}.premiumVATIncl` as const);
+              return sum + coerceNumber(v);
+            }, 0);
+            const tableTotalSumInsuredVATExcl = tableTotalSumInsuredVATIncl / 1.15;
+            const tableTotalPremiumVATExcl = tableTotalPremiumVATIncl / 1.15;
+            const tableTotalRate =
+              tableTotalSumInsuredVATExcl > 0 ? (tableTotalPremiumVATExcl / tableTotalSumInsuredVATExcl) * 100 : 0;
 
             const addRow = () => {
               const currentRows = form.getValues(`extra.calculationTables.${tableIdx}.calculationRows`) || [];
@@ -1249,6 +1270,20 @@ export default function SubmissionForm({ submissionId, initialData }: Submission
                                 </tr>
                               );
                             })
+                          )}
+
+                          {tableRows.length > 0 && (
+                            <tr className="border-t bg-blue-50 font-semibold">
+                              <td className="p-2" colSpan={2}>
+                                Total (Calculation Table {tableIdx + 1})
+                              </td>
+                              <td className="p-2 text-right">{formatCurrency(tableTotalSumInsuredVATIncl)}</td>
+                              <td className="p-2 text-right">{formatCurrency(tableTotalPremiumVATIncl)}</td>
+                              <td className="p-2 text-right">{formatCurrency(tableTotalSumInsuredVATExcl)}</td>
+                              <td className="p-2 text-right">{formatCurrency(tableTotalPremiumVATExcl)}</td>
+                              <td className="p-2 text-right">{tableTotalRate.toFixed(3)}%</td>
+                              <td className="p-2 text-center text-muted-foreground">—</td>
+                            </tr>
                           )}
                         </tbody>
                       </table>
